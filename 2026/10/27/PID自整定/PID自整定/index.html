@@ -1,0 +1,937 @@
+
+
+<!DOCTYPE html>
+<html lang="zh-CN" data-default-color-scheme=auto>
+
+
+
+<head>
+  <meta charset="UTF-8">
+
+  <link rel="apple-touch-icon" sizes="76x76" href="/img/fluid.png">
+  <link rel="icon" href="/img/fluid.png">
+  
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, shrink-to-fit=no">
+  <meta http-equiv="x-ua-compatible" content="ie=edge">
+  
+  <meta name="theme-color" content="#2f4154">
+  <meta name="author" content="babuqu">
+  <meta name="keywords" content="">
+  
+    <meta name="description" content="本文整理 PID 自整定的基本架构：先通过安全的试验获得输入输出数据，再用继电器反馈或最小二乘法得到振荡特征或对象模型，最后按选定的整定规则计算 PID 参数并验证。">
+<meta property="og:type" content="article">
+<meta property="og:title" content="PID自整定：继电器法与最小二乘辨识">
+<meta property="og:url" content="https://babuqu.github.io/2026/10/27/PID%E8%87%AA%E6%95%B4%E5%AE%9A/PID%E8%87%AA%E6%95%B4%E5%AE%9A/index.html">
+<meta property="og:site_name" content="Hexo">
+<meta property="og:description" content="本文整理 PID 自整定的基本架构：先通过安全的试验获得输入输出数据，再用继电器反馈或最小二乘法得到振荡特征或对象模型，最后按选定的整定规则计算 PID 参数并验证。">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:image" content="https://babuqu.github.io/2026/10/27/PID%E8%87%AA%E6%95%B4%E5%AE%9A/PID%E8%87%AA%E6%95%B4%E5%AE%9A/image.png">
+<meta property="og:image" content="https://babuqu.github.io/2026/10/27/PID%E8%87%AA%E6%95%B4%E5%AE%9A/PID%E8%87%AA%E6%95%B4%E5%AE%9A/image-1.png">
+<meta property="article:published_time" content="2026-10-27T12:56:35.000Z">
+<meta property="article:modified_time" content="2026-10-27T13:40:16.004Z">
+<meta property="article:author" content="John Doe">
+<meta property="article:tag" content="PID">
+<meta property="article:tag" content="控制理论">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://babuqu.github.io/2026/10/27/PID%E8%87%AA%E6%95%B4%E5%AE%9A/PID%E8%87%AA%E6%95%B4%E5%AE%9A/image.png">
+  
+  
+  
+  <title>PID自整定：继电器法与最小二乘辨识 - Hexo</title>
+
+  <link  rel="stylesheet" href="https://lib.baomitu.com/twitter-bootstrap/4.6.1/css/bootstrap.min.css" />
+
+
+
+  <link  rel="stylesheet" href="https://lib.baomitu.com/github-markdown-css/4.0.0/github-markdown.min.css" />
+
+  <link  rel="stylesheet" href="https://lib.baomitu.com/hint.css/2.7.0/hint.min.css" />
+
+  <link  rel="stylesheet" href="https://lib.baomitu.com/fancybox/3.5.7/jquery.fancybox.min.css" />
+
+
+
+<!-- 主题依赖的图标库，不要自行修改 -->
+<!-- Do not modify the link that theme dependent icons -->
+
+<link rel="stylesheet" href="//at.alicdn.com/t/c/font_1749284_5i9bdhy70f8.css">
+
+
+
+<link rel="stylesheet" href="//at.alicdn.com/t/c/font_1736178_k526ubmyhba.css">
+
+
+<link  rel="stylesheet" href="/css/main.css" />
+
+
+  <link id="highlight-css" rel="stylesheet" href="/css/highlight.css" />
+  
+    <link id="highlight-css-dark" rel="stylesheet" href="/css/highlight-dark.css" />
+  
+
+
+
+
+  <script id="fluid-configs">
+    var Fluid = window.Fluid || {};
+    Fluid.ctx = Object.assign({}, Fluid.ctx)
+    var CONFIG = {"hostname":"babuqu.github.io","root":"/","version":"1.9.9","typing":{"enable":true,"typeSpeed":70,"cursorChar":"_","loop":false,"scope":[]},"anchorjs":{"enable":true,"element":"h1,h2,h3,h4,h5,h6","placement":"left","visible":"hover","icon":""},"progressbar":{"enable":true,"height_px":3,"color":"#29d","options":{"showSpinner":false,"trickleSpeed":100}},"code_language":{"enable":true,"default":"TEXT"},"copy_btn":true,"image_caption":{"enable":true},"image_zoom":{"enable":true,"img_url_replace":["",""]},"toc":{"enable":true,"expand_all":true,"placement":"right","headingSelector":"h1,h2,h3,h4,h5,h6","collapseDepth":0},"lazyload":{"enable":true,"loading_img":"/img/loading.gif","onlypost":false,"offset_factor":2},"web_analytics":{"enable":false,"follow_dnt":true,"baidu":null,"google":{"measurement_id":null},"tencent":{"sid":null,"cid":null},"leancloud":{"app_id":null,"app_key":null,"server_url":null,"path":"window.location.pathname","ignore_local":false},"openkounter":{"server_url":"https://open-kounter.mintimate.cn","path":"window.location.pathname","ignore_local":false},"umami":{"src":null,"website_id":null,"domains":null,"start_time":"2024-01-01T00:00:00.000Z","token":null,"api_server":null}},"search_path":"/local-search.xml","include_content_in_search":true};
+
+    if (CONFIG.web_analytics.follow_dnt) {
+      var dntVal = navigator.doNotTrack || window.doNotTrack || navigator.msDoNotTrack;
+      Fluid.ctx.dnt = dntVal && (dntVal.startsWith('1') || dntVal.startsWith('yes') || dntVal.startsWith('on'));
+    }
+  </script>
+  <script  src="/js/utils.js" ></script>
+  <script  src="/js/color-schema.js" ></script>
+  
+
+
+  
+<meta name="generator" content="Hexo 8.1.2"></head>
+
+
+<body>
+  
+
+  <header>
+    
+
+<div class="header-inner" style="height: 70vh;">
+  <nav id="navbar" class="navbar fixed-top  navbar-expand-lg navbar-dark scrolling-navbar">
+  <div class="container">
+    <a class="navbar-brand" href="/">
+      <strong>Fluid</strong>
+    </a>
+
+    <button id="navbar-toggler-btn" class="navbar-toggler" type="button" data-toggle="collapse"
+            data-target="#navbarSupportedContent"
+            aria-controls="navbarSupportedContent" aria-expanded="false" aria-label="Toggle navigation">
+      <div class="animated-icon"><span></span><span></span><span></span></div>
+    </button>
+
+    <!-- Collapsible content (desktop) -->
+    <div class="collapse navbar-collapse" id="navbarSupportedContent">
+      <ul class="navbar-nav ml-auto text-center">
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/" target="_self">
+                <i class="iconfont icon-home-fill"></i>
+                <span>首页</span>
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/archives/" target="_self">
+                <i class="iconfont icon-archive-fill"></i>
+                <span>归档</span>
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/categories/" target="_self">
+                <i class="iconfont icon-category-fill"></i>
+                <span>分类</span>
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/tags/" target="_self">
+                <i class="iconfont icon-tags-fill"></i>
+                <span>标签</span>
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/about/" target="_self">
+                <i class="iconfont icon-user-fill"></i>
+                <span>关于</span>
+              </a>
+            </li>
+          
+        
+        
+          <li class="nav-item" id="search-btn">
+            <a class="nav-link" target="_self" href="javascript:;" data-toggle="modal" data-target="#modalSearch" aria-label="Search">
+              <i class="iconfont icon-search"></i>
+            </a>
+          </li>
+          
+        
+        
+          <li class="nav-item" id="color-toggle-btn">
+            <a class="nav-link" target="_self" href="javascript:;" aria-label="Color Toggle">
+              <i class="iconfont icon-dark" id="color-toggle-icon"></i>
+            </a>
+          </li>
+        
+      </ul>
+    </div>
+  </div>
+</nav>
+
+<!-- Mobile grid menu overlay -->
+<div id="mobile-grid-menu" class="d-lg-none">
+  <div class="mobile-grid-menu-inner">
+    <div class="container">
+      <div class="row">
+        
+          
+          
+          
+          
+            <div class="col-4 mobile-grid-cell">
+              <a href="/" target="_self">
+                <div class="mobile-grid-item">
+                  <i class="iconfont icon-home-fill"></i>
+                  <span>首页</span>
+                </div>
+              </a>
+            </div>
+          
+        
+          
+          
+          
+          
+            <div class="col-4 mobile-grid-cell">
+              <a href="/archives/" target="_self">
+                <div class="mobile-grid-item">
+                  <i class="iconfont icon-archive-fill"></i>
+                  <span>归档</span>
+                </div>
+              </a>
+            </div>
+          
+        
+          
+          
+          
+          
+            <div class="col-4 mobile-grid-cell">
+              <a href="/categories/" target="_self">
+                <div class="mobile-grid-item">
+                  <i class="iconfont icon-category-fill"></i>
+                  <span>分类</span>
+                </div>
+              </a>
+            </div>
+          
+        
+          
+          
+          
+          
+            <div class="col-4 mobile-grid-cell">
+              <a href="/tags/" target="_self">
+                <div class="mobile-grid-item">
+                  <i class="iconfont icon-tags-fill"></i>
+                  <span>标签</span>
+                </div>
+              </a>
+            </div>
+          
+        
+          
+          
+          
+          
+            <div class="col-4 mobile-grid-cell">
+              <a href="/about/" target="_self">
+                <div class="mobile-grid-item">
+                  <i class="iconfont icon-user-fill"></i>
+                  <span>关于</span>
+                </div>
+              </a>
+            </div>
+          
+        
+        
+          <div class="col-4 mobile-grid-cell" id="mobile-search-btn">
+            <a href="javascript:;" data-toggle="modal" data-target="#modalSearch" aria-label="Search">
+              <div class="mobile-grid-item">
+                <i class="iconfont icon-search"></i>
+                <span>搜索</span>
+              </div>
+            </a>
+          </div>
+        
+        
+          <div class="col-4 mobile-grid-cell" id="mobile-color-toggle-btn"
+               data-label-light="开灯"
+               data-label-dark="关灯">
+            <a href="javascript:;" aria-label="Color Toggle">
+              <div class="mobile-grid-item">
+                <i class="iconfont icon-dark" id="mobile-color-toggle-icon"></i>
+                <span id="mobile-color-toggle-label">关灯</span>
+              </div>
+            </a>
+          </div>
+        
+      </div>
+    </div>
+  </div>
+</div>
+
+  
+
+<div id="banner" class="banner" parallax=true
+     style="background: url('/img/default.png') no-repeat center center; background-size: cover;">
+  <div class="full-bg-img">
+    <div class="mask flex-center" style="background-color: rgba(0, 0, 0, 0.3)">
+      <div class="banner-text text-center fade-in-up">
+        <div class="h2">
+          
+            <span id="subtitle" data-typed-text="PID自整定：继电器法与最小二乘辨识"></span>
+          
+        </div>
+
+        
+          
+  <div class="mt-3">
+    
+    
+      <span class="post-meta">
+        <i class="iconfont icon-date-fill" aria-hidden="true"></i>
+        <time datetime="2026-10-27 20:56" pubdate>
+          2026年10月27日 晚上
+        </time>
+      </span>
+    
+  </div>
+
+  <div class="mt-1">
+    
+      <span class="post-meta mr-2">
+        <i class="iconfont icon-chart"></i>
+        
+          8.9k 字
+        
+      </span>
+    
+
+    
+      <span class="post-meta mr-2">
+        <i class="iconfont icon-clock-fill"></i>
+        
+        
+        
+          75 分钟
+        
+      </span>
+    
+
+    
+    
+  </div>
+
+
+        
+      </div>
+
+      
+    </div>
+  </div>
+</div>
+
+
+
+</div>
+
+  </header>
+
+  <main>
+    
+      
+
+<div class="container-fluid nopadding-x">
+  <div class="row nomargin-x">
+    <div class="side-col d-none d-lg-block col-lg-2">
+      
+
+    </div>
+
+    <div class="col-lg-8 nopadding-x-md">
+      <div class="container nopadding-x-md" id="board-ctn">
+        <div id="board">
+          <article class="post-content mx-auto">
+            <h1 id="seo-header">PID自整定：继电器法与最小二乘辨识</h1>
+            
+            
+              <div class="markdown-body">
+                
+
+                <p>本文整理 PID 自整定的基本架构：先通过安全的试验获得输入输出数据，再用继电器反馈或最小二乘法得到振荡特征或对象模型，最后按选定的整定规则计算 PID 参数并验证。</p>
+<span id="more"></span>
+
+<h2 id="一、整体架构与适用范围"><a href="#一、整体架构与适用范围" class="headerlink" title="一、整体架构与适用范围"></a>一、整体架构与适用范围</h2><p>PID 自整定可拆为四层：</p>
+<ol>
+<li><strong>试验管理</strong>：检查运行条件，选择阶跃或继电器试验，限定输入幅值、输出范围、超时和异常退出条件。</li>
+<li><strong>数据采集</strong>：以固定采样周期记录控制输入 $u[k]$、测量输出 $y[k]$ 和时间戳；去除明显无效点并估计稳态值。</li>
+<li><strong>辨识与整定</strong>：继电器法直接估计临界增益和周期；最小二乘法先估计模型参数，再由模型计算 PID 参数。</li>
+<li><strong>验证与保存</strong>：限幅运行新参数，检查超调、稳定时间、稳态误差和执行器饱和；满足条件后再保存，失败则恢复旧参数。</li>
+</ol>
+<p>自整定不是在任何工况下都安全。试验前应确认执行器有余量、过程变量有安全边界，并提供人工停止入口。非线性、时变、强噪声或明显死区对象往往需要分段模型或更保守的整定规则。</p>
+<h2 id="二、继电器反馈法"><a href="#二、继电器反馈法" class="headerlink" title="二、继电器反馈法"></a>二、继电器反馈法</h2><h3 id="2-1-原理"><a href="#2-1-原理" class="headerlink" title="2.1 原理"></a>2.1 原理</h3><p>继电器法用两位控制器替代 PID，在设定值附近施加幅值约为 $d$ 的正负切换：</p>
+<div class="math-display">\[
+u(t)=u_0+d\,\mathrm{sgn}(r-y(t))
+\]</div>
+<p>其中 $u_0$ 是工作点偏置。对象通常产生近似持续振荡。记录稳定后的输出振荡周期 $T_u$，并估算输出振幅 $a$（宜用峰峰值的一半或对若干周期取平均）。理想对称继电器的描述函数给出临界增益近似：</p>
+<div class="math-display">\[
+K_u\approx\frac{4d}{\pi a}
+\]</div>
+<p>$K_u$ 和 $T_u$ 分别是临界增益和临界周期。Ziegler–Nichols 等规则可进一步由二者给出 $K_p,K_i,K_d$；实际产品应选较保守、符合对象约束的规则，不能把某一经验表当作通用最优值。</p>
+<h3 id="2-2-实现步骤与注意事项"><a href="#2-2-实现步骤与注意事项" class="headerlink" title="2.2 实现步骤与注意事项"></a>2.2 实现步骤与注意事项</h3><p>在闭环稳定的工作点附近启用继电器；加入滞环 $h$（在 $r-y&gt;h$ 与 $r-y&lt;-h$ 时切换），避免噪声导致高频抖动。等待振荡进入稳定段后，检测同方向过零或峰值以计算周期；跳过启动阶段，对多个周期求均值。振幅可由峰值和谷值计算：$a&#x3D;(y_{max}-y_{min})&#x2F;2$。若振幅持续增长、输出触及限制、周期漂移过大或试验超时，应立刻退出并恢复原控制。</p>
+<p>继电器幅值需足以克服噪声和静摩擦，又不能使过程越过安全边界。偏置与不对称继电器会影响估计；明显非线性、纯滞后或多振荡模态时，所得临界参数只是特定工作点下的近似。</p>
+<h3 id="2-3-matlab仿真实现"><a href="#2-3-matlab仿真实现" class="headerlink" title="2.3 matlab仿真实现"></a>2.3 matlab仿真实现</h3><h4 id="2-3-1-一阶惯性对象"><a href="#2-3-1-一阶惯性对象" class="headerlink" title="2.3.1 一阶惯性对象"></a>2.3.1 一阶惯性对象</h4><div class="math-display">\[
+G(s) = \frac{K}{(\tau*s+1)}
+\]</div>
+<p>这里采用继电器法进行PID参数整定。使用增量式PID进行闭环控制。仿真中模型迭代周期和PID控制周期可以单独配置。<br><img src="/2026/10/27/PID%E8%87%AA%E6%95%B4%E5%AE%9A/PID%E8%87%AA%E6%95%B4%E5%AE%9A/image.png" srcset="/img/loading.gif" lazyload alt="alt text"></p>
+<details>
+<summary>点击展开/折叠matlab代码</summary>
+
+
+<figure class="highlight dns"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br><span class="line">72</span><br><span class="line">73</span><br><span class="line">74</span><br><span class="line">75</span><br><span class="line">76</span><br><span class="line">77</span><br><span class="line">78</span><br><span class="line">79</span><br><span class="line">80</span><br><span class="line">81</span><br><span class="line">82</span><br><span class="line">83</span><br><span class="line">84</span><br><span class="line">85</span><br><span class="line">86</span><br><span class="line">87</span><br><span class="line">88</span><br><span class="line">89</span><br><span class="line">90</span><br><span class="line">91</span><br><span class="line">92</span><br><span class="line">93</span><br><span class="line">94</span><br><span class="line">95</span><br><span class="line">96</span><br><span class="line">97</span><br><span class="line">98</span><br><span class="line">99</span><br><span class="line">100</span><br><span class="line">101</span><br><span class="line">102</span><br><span class="line">103</span><br><span class="line">104</span><br><span class="line">105</span><br><span class="line">106</span><br><span class="line">107</span><br><span class="line">108</span><br><span class="line">109</span><br><span class="line">110</span><br><span class="line">111</span><br><span class="line">112</span><br><span class="line">113</span><br><span class="line">114</span><br><span class="line">115</span><br><span class="line">116</span><br><span class="line">117</span><br><span class="line">118</span><br><span class="line">119</span><br><span class="line">120</span><br><span class="line">121</span><br><span class="line">122</span><br><span class="line">123</span><br><span class="line">124</span><br><span class="line">125</span><br><span class="line">126</span><br><span class="line">127</span><br><span class="line">128</span><br><span class="line">129</span><br><span class="line">130</span><br><span class="line">131</span><br><span class="line">132</span><br><span class="line">133</span><br><span class="line">134</span><br><span class="line">135</span><br><span class="line">136</span><br><span class="line">137</span><br><span class="line">138</span><br><span class="line">139</span><br><span class="line">140</span><br><span class="line">141</span><br><span class="line">142</span><br><span class="line">143</span><br><span class="line">144</span><br><span class="line">145</span><br><span class="line">146</span><br><span class="line">147</span><br><span class="line">148</span><br><span class="line">149</span><br><span class="line">150</span><br><span class="line">151</span><br><span class="line">152</span><br><span class="line">153</span><br><span class="line">154</span><br><span class="line">155</span><br><span class="line">156</span><br><span class="line">157</span><br><span class="line">158</span><br><span class="line">159</span><br><span class="line">160</span><br><span class="line">161</span><br><span class="line">162</span><br><span class="line">163</span><br><span class="line">164</span><br><span class="line">165</span><br><span class="line">166</span><br><span class="line">167</span><br><span class="line">168</span><br><span class="line">169</span><br><span class="line">170</span><br><span class="line">171</span><br><span class="line">172</span><br><span class="line">173</span><br><span class="line">174</span><br><span class="line">175</span><br><span class="line">176</span><br><span class="line">177</span><br><span class="line">178</span><br><span class="line">179</span><br><span class="line">180</span><br><span class="line">181</span><br><span class="line">182</span><br><span class="line">183</span><br><span class="line">184</span><br><span class="line">185</span><br><span class="line">186</span><br></pre></td><td class="code"><pre><code class="hljs dns">%% 纯一阶惯性系统：自动辨识 + 增量型PID<br>% 仿真步长 h 与控制步长 Ts 分离<br>% 对象：G<span class="hljs-punctuation">(</span>s<span class="hljs-punctuation">)</span> = K/<span class="hljs-punctuation">(</span>tau*s+<span class="hljs-number">1</span><span class="hljs-punctuation">)</span><br><br>clear<span class="hljs-comment">; clc; close all;</span><br><br>%% <span class="hljs-number">1</span>. 对象参数<br>K_real   = <span class="hljs-number">2</span>.<span class="hljs-number">0</span><span class="hljs-comment">;</span><br>tau_real = <span class="hljs-number">1</span>.<span class="hljs-number">0</span><span class="hljs-comment">;</span><br><br>h  = <span class="hljs-number">0</span>.<span class="hljs-number">001</span><span class="hljs-comment">;</span><br>Ts = <span class="hljs-number">0</span>.<span class="hljs-number">01</span><span class="hljs-comment">;</span><br><br>assert<span class="hljs-punctuation">(</span>Ts &gt;= h &amp;&amp; abs<span class="hljs-punctuation">(</span>Ts/h-round<span class="hljs-punctuation">(</span>Ts/h<span class="hljs-punctuation">)</span><span class="hljs-punctuation">)</span> &lt; <span class="hljs-number">1</span>e-<span class="hljs-number">9</span>, ...<br>    &#x27;Ts/h 必须为正整数&#x27;<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br><br>Nc = round<span class="hljs-punctuation">(</span>Ts/h<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br><br>%% <span class="hljs-number">2</span>. 继电器测试阶段<br>d = <span class="hljs-number">1</span>.<span class="hljs-number">0</span><span class="hljs-comment">;</span><br>T_test = <span class="hljs-number">40</span><span class="hljs-comment">;</span><br>N = round<span class="hljs-punctuation">(</span>T_test/h<span class="hljs-punctuation">)</span>+<span class="hljs-number">1</span><span class="hljs-comment">;</span><br>t = <span class="hljs-punctuation">(</span><span class="hljs-number">0</span>:N-<span class="hljs-number">1</span><span class="hljs-punctuation">)</span>&#x27;*h<span class="hljs-comment">;</span><br><br>y = zeros<span class="hljs-punctuation">(</span>N,<span class="hljs-number">1</span><span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>u = zeros<span class="hljs-punctuation">(</span>N,<span class="hljs-number">1</span><span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br><br>u_hold = d<span class="hljs-comment">;</span><br><br>for k = <span class="hljs-number">1</span>:N-<span class="hljs-number">1</span><br><br>    % 测试输入只在控制时刻更新<br>    if mod<span class="hljs-punctuation">(</span>k-<span class="hljs-number">1</span>,Nc<span class="hljs-punctuation">)</span> == <span class="hljs-number">0</span><br>        if t<span class="hljs-punctuation">(</span>k<span class="hljs-punctuation">)</span> &lt; <span class="hljs-number">20</span><br>            u_hold = d<span class="hljs-comment">;</span><br>        else<br>            u_hold = -d<span class="hljs-comment">;</span><br>        end<br>    end<br><br>    u<span class="hljs-punctuation">(</span>k<span class="hljs-punctuation">)</span> = u_hold<span class="hljs-comment">;</span><br><br>    % 纯一阶惯性系统<br>    dy = <span class="hljs-punctuation">(</span>-y<span class="hljs-punctuation">(</span>k<span class="hljs-punctuation">)</span>+K_real*u<span class="hljs-punctuation">(</span>k<span class="hljs-punctuation">)</span><span class="hljs-punctuation">)</span>/tau_real<span class="hljs-comment">;</span><br>    y<span class="hljs-punctuation">(</span>k+<span class="hljs-number">1</span><span class="hljs-punctuation">)</span> = y<span class="hljs-punctuation">(</span>k<span class="hljs-punctuation">)</span>+h*dy<span class="hljs-comment">;</span><br>end<br>u<span class="hljs-punctuation">(</span>N<span class="hljs-punctuation">)</span> = u<span class="hljs-punctuation">(</span>N-<span class="hljs-number">1</span><span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br><br>%% <span class="hljs-number">3</span>. 对象参数辨识<br>idx_ss = t &gt;= <span class="hljs-number">15</span> &amp; t &lt;= <span class="hljs-number">19</span><span class="hljs-comment">;</span><br>y_ss = mean<span class="hljs-punctuation">(</span>y<span class="hljs-punctuation">(</span>idx_ss<span class="hljs-punctuation">)</span><span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br><br>K_est = y_ss/d<span class="hljs-comment">;</span><br><br>target = <span class="hljs-number">0</span>.<span class="hljs-number">6321205588</span>*y_ss<span class="hljs-comment">;</span><br>idx_tau = find<span class="hljs-punctuation">(</span>t &gt;= <span class="hljs-number">0</span> &amp; t &lt; <span class="hljs-number">20</span> &amp; y &gt;= target,<span class="hljs-number">1</span>,&#x27;first&#x27;<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br><br>assert<span class="hljs-punctuation">(</span>~isempty<span class="hljs-punctuation">(</span>idx_tau<span class="hljs-punctuation">)</span>,&#x27;未找到时间常数估计点&#x27;<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br><br>tau_est = t<span class="hljs-punctuation">(</span>idx_tau<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br><br>%% <span class="hljs-number">4</span>. PI/PID参数自动计算<br>% IMC型PI整定<br>lambda = max<span class="hljs-punctuation">(</span>tau_est/<span class="hljs-number">2</span>, Ts<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br><br>Kp = tau_est/<span class="hljs-punctuation">(</span>K_est*lambda<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>Ti = tau_est<span class="hljs-comment">;</span><br>Td = <span class="hljs-number">0</span><span class="hljs-comment">;</span><br><br>Ki = Kp/Ti<span class="hljs-comment">;</span><br>Kd = Kp*Td<span class="hljs-comment">;</span><br><br>fprintf<span class="hljs-punctuation">(</span>&#x27;\n===== 对象辨识 =====\n&#x27;<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>fprintf<span class="hljs-punctuation">(</span>&#x27;K_real   = %.<span class="hljs-number">4</span>f\n&#x27;,K_real<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>fprintf<span class="hljs-punctuation">(</span>&#x27;K_est    = %.<span class="hljs-number">4</span>f\n&#x27;,K_est<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>fprintf<span class="hljs-punctuation">(</span>&#x27;tau_real = %.<span class="hljs-number">4</span>f s\n&#x27;,tau_real<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>fprintf<span class="hljs-punctuation">(</span>&#x27;tau_est  = %.<span class="hljs-number">4</span>f s\n&#x27;,tau_est<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br><br>fprintf<span class="hljs-punctuation">(</span>&#x27;\n===== 增量型PID参数 =====\n&#x27;<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>fprintf<span class="hljs-punctuation">(</span>&#x27;Kp = %.<span class="hljs-number">4</span>f\n&#x27;,Kp<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>fprintf<span class="hljs-punctuation">(</span>&#x27;Ki = %.<span class="hljs-number">4</span>f\n&#x27;,Ki<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>fprintf<span class="hljs-punctuation">(</span>&#x27;Kd = %.<span class="hljs-number">4</span>f\n&#x27;,Kd<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>fprintf<span class="hljs-punctuation">(</span>&#x27;lambda = %.<span class="hljs-number">4</span>f s\n&#x27;,lambda<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br><br>%% <span class="hljs-number">5</span>. 增量型PID闭环<br>T_pid = <span class="hljs-number">30</span><span class="hljs-comment">;</span><br>N2 = round<span class="hljs-punctuation">(</span>T_pid/h<span class="hljs-punctuation">)</span>+<span class="hljs-number">1</span><span class="hljs-comment">;</span><br>t2 = <span class="hljs-punctuation">(</span><span class="hljs-number">0</span>:N2-<span class="hljs-number">1</span><span class="hljs-punctuation">)</span>&#x27;*h<span class="hljs-comment">;</span><br><br>r = <span class="hljs-number">1</span>.<span class="hljs-number">0</span><span class="hljs-comment">;</span><br><br>y2 = zeros<span class="hljs-punctuation">(</span>N2,<span class="hljs-number">1</span><span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>u2 = zeros<span class="hljs-punctuation">(</span>N2,<span class="hljs-number">1</span><span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br><br>u_min = -<span class="hljs-number">2</span><span class="hljs-comment">;</span><br>u_max =  <span class="hljs-number">2</span><span class="hljs-comment">;</span><br><br>% 误差历史<br>e_k   = r-y2<span class="hljs-punctuation">(</span><span class="hljs-number">1</span><span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>e_k1  = e_k<span class="hljs-comment">;</span><br>e_k2  = e_k<span class="hljs-comment">;</span><br><br>u_hold = <span class="hljs-number">0</span><span class="hljs-comment">;</span><br><br>for k = <span class="hljs-number">1</span>:N2-<span class="hljs-number">1</span><br><br>    % 仅在控制时刻计算增量型PID<br>    if mod<span class="hljs-punctuation">(</span>k-<span class="hljs-number">1</span>,Nc<span class="hljs-punctuation">)</span> == <span class="hljs-number">0</span><br><br>        e_k = r-y2<span class="hljs-punctuation">(</span>k<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br><br>        % 增量型PID<br>        du = Kp*<span class="hljs-punctuation">(</span>e_k-e_k1<span class="hljs-punctuation">)</span> ...<br>           + Ki*Ts*e_k ...<br>           + Kd/Ts*<span class="hljs-punctuation">(</span>e_k-<span class="hljs-number">2</span>*e_k1+e_k2<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br><br>        u_raw = u_hold + du<span class="hljs-comment">;</span><br><br>        % 输出限幅<br>        u_new = min<span class="hljs-punctuation">(</span>max<span class="hljs-punctuation">(</span>u_raw,u_min<span class="hljs-punctuation">)</span>,u_max<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br><br>        % 简单抗饱和：<br>        % 若增量会进一步推动饱和，则拒绝该增量<br>        if <span class="hljs-punctuation">(</span>u_raw &gt; u_max &amp;&amp; du &gt; <span class="hljs-number">0</span><span class="hljs-punctuation">)</span> || ...<br>           <span class="hljs-punctuation">(</span>u_raw &lt; u_min &amp;&amp; du &lt; <span class="hljs-number">0</span><span class="hljs-punctuation">)</span><br>            u_new = u_hold<span class="hljs-comment">;</span><br>        end<br><br>        u_hold = u_new<span class="hljs-comment">;</span><br><br>        % 更新误差历史<br>        e_k2 = e_k1<span class="hljs-comment">;</span><br>        e_k1 = e_k<span class="hljs-comment">;</span><br>    end<br><br>    u2<span class="hljs-punctuation">(</span>k<span class="hljs-punctuation">)</span> = u_hold<span class="hljs-comment">;</span><br><br>    % 对象以仿真步长积分<br>    dy = <span class="hljs-punctuation">(</span>-y2<span class="hljs-punctuation">(</span>k<span class="hljs-punctuation">)</span>+K_real*u2<span class="hljs-punctuation">(</span>k<span class="hljs-punctuation">)</span><span class="hljs-punctuation">)</span>/tau_real<span class="hljs-comment">;</span><br>    y2<span class="hljs-punctuation">(</span>k+<span class="hljs-number">1</span><span class="hljs-punctuation">)</span> = y2<span class="hljs-punctuation">(</span>k<span class="hljs-punctuation">)</span>+h*dy<span class="hljs-comment">;</span><br>end<br><br>u2<span class="hljs-punctuation">(</span>N2<span class="hljs-punctuation">)</span> = u2<span class="hljs-punctuation">(</span>N2-<span class="hljs-number">1</span><span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br><br>%% <span class="hljs-number">6</span>. 性能指标<br>overshoot = max<span class="hljs-punctuation">(</span><span class="hljs-number">0</span>,<span class="hljs-punctuation">(</span>max<span class="hljs-punctuation">(</span>y2<span class="hljs-punctuation">)</span>-r<span class="hljs-punctuation">)</span>/abs<span class="hljs-punctuation">(</span>r<span class="hljs-punctuation">)</span><span class="hljs-punctuation">)</span>*<span class="hljs-number">100</span><span class="hljs-comment">;</span><br>idx_settle = find<span class="hljs-punctuation">(</span>abs<span class="hljs-punctuation">(</span>y2-r<span class="hljs-punctuation">)</span>&gt;<span class="hljs-number">0</span>.<span class="hljs-number">02</span>*abs<span class="hljs-punctuation">(</span>r<span class="hljs-punctuation">)</span>,<span class="hljs-number">1</span>,&#x27;last&#x27;<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br><br>if isempty<span class="hljs-punctuation">(</span>idx_settle<span class="hljs-punctuation">)</span><br>    settling_time = <span class="hljs-number">0</span><span class="hljs-comment">;</span><br>elseif idx_settle &lt; N2<br>    settling_time = t2<span class="hljs-punctuation">(</span>idx_settle+<span class="hljs-number">1</span><span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>else<br>    settling_time = NaN<span class="hljs-comment">;</span><br>end<br><br>IAE = sum<span class="hljs-punctuation">(</span>abs<span class="hljs-punctuation">(</span>r-y2<span class="hljs-punctuation">)</span><span class="hljs-punctuation">)</span>*h<span class="hljs-comment">;</span><br><br>fprintf<span class="hljs-punctuation">(</span>&#x27;\n===== 闭环性能 =====\n&#x27;<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>fprintf<span class="hljs-punctuation">(</span>&#x27;超调量 = %.<span class="hljs-number">3</span>f %%\n&#x27;,overshoot<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>fprintf<span class="hljs-punctuation">(</span>&#x27;调节时间约 = %.<span class="hljs-number">3</span>f s\n&#x27;,settling_time<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>fprintf<span class="hljs-punctuation">(</span>&#x27;IAE = %.<span class="hljs-number">4</span>f\n&#x27;,IAE<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br><br>%% <span class="hljs-number">7</span>. 绘图<br>figure<span class="hljs-punctuation">(</span>&#x27;Color&#x27;,&#x27;w&#x27;<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br><br>subplot<span class="hljs-punctuation">(</span><span class="hljs-number">3</span>,<span class="hljs-number">1</span>,<span class="hljs-number">1</span><span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>plot<span class="hljs-punctuation">(</span>t,y,&#x27;b&#x27;,&#x27;LineWidth&#x27;,<span class="hljs-number">1</span>.<span class="hljs-number">1</span><span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>grid on<span class="hljs-comment">;</span><br>ylabel<span class="hljs-punctuation">(</span>&#x27;y&#x27;<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>title<span class="hljs-punctuation">(</span>&#x27;辨识测试阶段&#x27;<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br><br>subplot<span class="hljs-punctuation">(</span><span class="hljs-number">3</span>,<span class="hljs-number">1</span>,<span class="hljs-number">2</span><span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>plot<span class="hljs-punctuation">(</span>t2,y2,&#x27;b&#x27;,&#x27;LineWidth&#x27;,<span class="hljs-number">1</span>.<span class="hljs-number">2</span><span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>hold on<span class="hljs-comment">;</span><br>yline<span class="hljs-punctuation">(</span>r,&#x27;r--&#x27;,&#x27;设定值&#x27;<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>grid on<span class="hljs-comment">;</span><br>ylabel<span class="hljs-punctuation">(</span>&#x27;y&#x27;<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>title<span class="hljs-punctuation">(</span>&#x27;增量型PID闭环响应&#x27;<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br><br>subplot<span class="hljs-punctuation">(</span><span class="hljs-number">3</span>,<span class="hljs-number">1</span>,<span class="hljs-number">3</span><span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>stairs<span class="hljs-punctuation">(</span>t2,u2,&#x27;k&#x27;,&#x27;LineWidth&#x27;,<span class="hljs-number">1</span>.<span class="hljs-number">1</span><span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>grid on<span class="hljs-comment">;</span><br>xlabel<span class="hljs-punctuation">(</span>&#x27;时间 <span class="hljs-punctuation">(</span>s<span class="hljs-punctuation">)</span>&#x27;<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>ylabel<span class="hljs-punctuation">(</span>&#x27;u&#x27;<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>title<span class="hljs-punctuation">(</span>&#x27;增量型PID控制输出&#x27;<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br></code></pre></td></tr></table></figure>
+</details>
+
+
+<h2 id="三、最小二乘法辨识"><a href="#三、最小二乘法辨识" class="headerlink" title="三、最小二乘法辨识"></a>三、最小二乘法辨识</h2><h3 id="3-1-离散模型与回归形式"><a href="#3-1-离散模型与回归形式" class="headerlink" title="3.1 离散模型与回归形式"></a>3.1 离散模型与回归形式</h3><p>固定采样周期 $T_s$ 下，可用离散输入输出模型描述对象。以二阶 ARX 为例：</p>
+<div class="math-display">\[
+y[k]+a_1y[k-1]+a_2y[k-2]=b_1u[k-1]+b_2u[k-2]+e[k]
+\]</div>
+<p>写成线性回归 $Y&#x3D;\Phi\theta+E$，其中</p>
+<div class="math-display">\[
+\theta=[a_1,a_2,b_1,b_2]^T,\quad
+\varphi[k]=[-y[k-1],-y[k-2],u[k-1],u[k-2]]^T
+\]</div>
+<p>普通最小二乘估计为</p>
+<div class="math-display">\[
+\hat\theta=(\Phi^T\Phi)^{-1}\Phi^TY
+\]</div>
+<p>实现时不应显式求逆；用 QR 或带主元的 Cholesky 求解更稳健。若数据持续到来，可用递推最小二乘（RLS）：</p>
+<div class="math-display">\[
+K_k=\frac{P_{k-1}\varphi_k}{\lambda+\varphi_k^TP_{k-1}\varphi_k},\quad
+\hat\theta_k=\hat\theta_{k-1}+K_k(y_k-\varphi_k^T\hat\theta_{k-1})
+\]</div>
+<div class="math-display">\[
+P_k=\lambda^{-1}(P_{k-1}-K_k\varphi_k^TP_{k-1})
+\]</div>
+<p>遗忘因子 $\lambda$ 接近 1 时适合缓慢变化对象；过小会让噪声影响变大。参数协方差、残差及条件数应一并监控。</p>
+<h3 id="3-2-matlab仿真实现"><a href="#3-2-matlab仿真实现" class="headerlink" title="3.2 matlab仿真实现"></a>3.2 matlab仿真实现</h3><h4 id="3-2-1-一阶惯性对象"><a href="#3-2-1-一阶惯性对象" class="headerlink" title="3.2.1 一阶惯性对象"></a>3.2.1 一阶惯性对象</h4><div class="math-display">\[
+G(s) = \frac{K}{(\tau*s+1)}
+\]</div>
+<p>这里采用最小二乘法进行PID参数整定。使用增量式PID进行闭环控制。<br><img src="/2026/10/27/PID%E8%87%AA%E6%95%B4%E5%AE%9A/PID%E8%87%AA%E6%95%B4%E5%AE%9A/image-1.png" srcset="/img/loading.gif" lazyload alt="alt text"></p>
+<details>
+<summary>点击展开/折叠matlab代码</summary>
+
+<figure class="highlight dns"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br><span class="line">72</span><br><span class="line">73</span><br><span class="line">74</span><br><span class="line">75</span><br><span class="line">76</span><br><span class="line">77</span><br><span class="line">78</span><br><span class="line">79</span><br><span class="line">80</span><br><span class="line">81</span><br><span class="line">82</span><br><span class="line">83</span><br><span class="line">84</span><br><span class="line">85</span><br><span class="line">86</span><br><span class="line">87</span><br><span class="line">88</span><br><span class="line">89</span><br><span class="line">90</span><br><span class="line">91</span><br><span class="line">92</span><br><span class="line">93</span><br><span class="line">94</span><br><span class="line">95</span><br><span class="line">96</span><br><span class="line">97</span><br><span class="line">98</span><br><span class="line">99</span><br><span class="line">100</span><br><span class="line">101</span><br><span class="line">102</span><br><span class="line">103</span><br><span class="line">104</span><br><span class="line">105</span><br><span class="line">106</span><br><span class="line">107</span><br><span class="line">108</span><br><span class="line">109</span><br><span class="line">110</span><br><span class="line">111</span><br><span class="line">112</span><br><span class="line">113</span><br><span class="line">114</span><br><span class="line">115</span><br><span class="line">116</span><br><span class="line">117</span><br><span class="line">118</span><br><span class="line">119</span><br><span class="line">120</span><br><span class="line">121</span><br><span class="line">122</span><br><span class="line">123</span><br><span class="line">124</span><br><span class="line">125</span><br><span class="line">126</span><br><span class="line">127</span><br><span class="line">128</span><br><span class="line">129</span><br><span class="line">130</span><br><span class="line">131</span><br><span class="line">132</span><br><span class="line">133</span><br><span class="line">134</span><br><span class="line">135</span><br><span class="line">136</span><br><span class="line">137</span><br><span class="line">138</span><br><span class="line">139</span><br><span class="line">140</span><br><span class="line">141</span><br><span class="line">142</span><br><span class="line">143</span><br><span class="line">144</span><br><span class="line">145</span><br><span class="line">146</span><br><span class="line">147</span><br><span class="line">148</span><br><span class="line">149</span><br><span class="line">150</span><br><span class="line">151</span><br><span class="line">152</span><br><span class="line">153</span><br><span class="line">154</span><br><span class="line">155</span><br><span class="line">156</span><br><span class="line">157</span><br><span class="line">158</span><br><span class="line">159</span><br><span class="line">160</span><br><span class="line">161</span><br><span class="line">162</span><br><span class="line">163</span><br><span class="line">164</span><br><span class="line">165</span><br><span class="line">166</span><br><span class="line">167</span><br><span class="line">168</span><br><span class="line">169</span><br><span class="line">170</span><br><span class="line">171</span><br><span class="line">172</span><br><span class="line">173</span><br><span class="line">174</span><br><span class="line">175</span><br><span class="line">176</span><br><span class="line">177</span><br><span class="line">178</span><br><span class="line">179</span><br><span class="line">180</span><br><span class="line">181</span><br><span class="line">182</span><br><span class="line">183</span><br><span class="line">184</span><br><span class="line">185</span><br><span class="line">186</span><br><span class="line">187</span><br><span class="line">188</span><br><span class="line">189</span><br><span class="line">190</span><br><span class="line">191</span><br><span class="line">192</span><br><span class="line">193</span><br><span class="line">194</span><br><span class="line">195</span><br><span class="line">196</span><br><span class="line">197</span><br><span class="line">198</span><br><span class="line">199</span><br><span class="line">200</span><br><span class="line">201</span><br><span class="line">202</span><br><span class="line">203</span><br><span class="line">204</span><br><span class="line">205</span><br><span class="line">206</span><br><span class="line">207</span><br><span class="line">208</span><br></pre></td><td class="code"><pre><code class="hljs dns">clc<span class="hljs-comment">; clear; close all;</span><br>%% <span class="hljs-number">1</span>. 真实对象：G<span class="hljs-punctuation">(</span>s<span class="hljs-punctuation">)</span> = K/<span class="hljs-punctuation">(</span>tau*s+<span class="hljs-number">1</span><span class="hljs-punctuation">)</span><br>K_real = <span class="hljs-number">2</span>.<span class="hljs-number">0</span><span class="hljs-comment">;</span><br>tau_real = <span class="hljs-number">1</span>.<span class="hljs-number">0</span><span class="hljs-comment">;</span><br><br>%% <span class="hljs-number">2</span>. 采样参数<br>Ts = <span class="hljs-number">0</span>.<span class="hljs-number">01</span><span class="hljs-comment">;             % 辨识采样周期</span><br>Tmax = <span class="hljs-number">40</span><span class="hljs-comment">;              % 最大辨识时间</span><br>Nmax = round<span class="hljs-punctuation">(</span>Tmax/Ts<span class="hljs-punctuation">)</span> + <span class="hljs-number">1</span><span class="hljs-comment">;</span><br><br>u_min = <span class="hljs-number">0</span><span class="hljs-comment">;</span><br>u_max = <span class="hljs-number">2</span><span class="hljs-comment">;</span><br>u_id = <span class="hljs-punctuation">(</span>u_min + u_max<span class="hljs-punctuation">)</span>/<span class="hljs-number">2</span><span class="hljs-comment">;   % 半量程输入 = 1</span><br><br>%% <span class="hljs-number">3</span>. 自动结束条件<br>min_time = <span class="hljs-number">0</span>.<span class="hljs-number">5</span><span class="hljs-comment">;</span><br>rate_threshold = <span class="hljs-number">0</span>.<span class="hljs-number">01</span><span class="hljs-comment">;     % 输出单位/s</span><br>stable_required = <span class="hljs-number">30</span><span class="hljs-comment">;</span><br><br>stable_count = <span class="hljs-number">0</span><span class="hljs-comment">;</span><br>t_switch = NaN<span class="hljs-comment">;</span><br><br>%% <span class="hljs-number">4</span>. RLS 初始化<br>% y<span class="hljs-punctuation">(</span>k<span class="hljs-punctuation">)</span> = <span class="hljs-keyword">a</span>*y<span class="hljs-punctuation">(</span>k-<span class="hljs-number">1</span><span class="hljs-punctuation">)</span> + b*u<span class="hljs-punctuation">(</span>k-<span class="hljs-number">1</span><span class="hljs-punctuation">)</span><br>theta = [<span class="hljs-number">0</span>.<span class="hljs-number">9</span><span class="hljs-comment">; 0.1];        % 参数初值 [a;b]</span><br>P = eye<span class="hljs-punctuation">(</span><span class="hljs-number">2</span><span class="hljs-punctuation">)</span>*<span class="hljs-number">1000</span><span class="hljs-comment">;</span><br>lambda = <span class="hljs-number">1</span>.<span class="hljs-number">0</span><span class="hljs-comment">;              % 无遗忘因子，适合本次固定对象辨识</span><br><br>%% <span class="hljs-number">5</span>. 辨识阶段<br>t_id = <span class="hljs-punctuation">(</span><span class="hljs-number">0</span>:Nmax-<span class="hljs-number">1</span><span class="hljs-punctuation">)</span>*Ts<span class="hljs-comment">;</span><br>y_id = zeros<span class="hljs-punctuation">(</span><span class="hljs-number">1</span>,Nmax<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>u_id_log = zeros<span class="hljs-punctuation">(</span><span class="hljs-number">1</span>,Nmax<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>rate_log = nan<span class="hljs-punctuation">(</span><span class="hljs-number">1</span>,Nmax<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br><br>a_real = exp<span class="hljs-punctuation">(</span>-Ts/tau_real<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>b_real = K_real*<span class="hljs-punctuation">(</span><span class="hljs-number">1</span>-a_real<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br><br>u_id_log<span class="hljs-punctuation">(</span><span class="hljs-number">1</span><span class="hljs-punctuation">)</span> = u_id<span class="hljs-comment">;</span><br><br>for k = <span class="hljs-number">2</span>:Nmax<br><br>    % 仿真对象：精确离散化的一阶系统<br>    y_id<span class="hljs-punctuation">(</span>k<span class="hljs-punctuation">)</span> = a_real*y_id<span class="hljs-punctuation">(</span>k-<span class="hljs-number">1</span><span class="hljs-punctuation">)</span> + ...<br>              b_real*u_id_log<span class="hljs-punctuation">(</span>k-<span class="hljs-number">1</span><span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br><br>    % ---------- RLS 在线辨识 ----------<br>    phi = [y_id<span class="hljs-punctuation">(</span>k-<span class="hljs-number">1</span><span class="hljs-punctuation">)</span><span class="hljs-comment">; u_id_log(k-1)];</span><br><br>    gain = P*phi/<span class="hljs-punctuation">(</span>lambda + phi&#x27;*P*phi<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br><br>    prediction_error = y_id<span class="hljs-punctuation">(</span>k<span class="hljs-punctuation">)</span> - phi&#x27;*theta<span class="hljs-comment">;</span><br><br>    theta = theta + gain*prediction_error<span class="hljs-comment">;</span><br><br>    P = <span class="hljs-punctuation">(</span>P - gain*phi&#x27;*P<span class="hljs-punctuation">)</span>/lambda<span class="hljs-comment">;</span><br>    P = <span class="hljs-punctuation">(</span>P + P&#x27;<span class="hljs-punctuation">)</span>/<span class="hljs-number">2</span><span class="hljs-comment">;   % 数值对称化</span><br><br>    % ---------- 变化率判断 ----------<br>    rate = abs<span class="hljs-punctuation">(</span>y_id<span class="hljs-punctuation">(</span>k<span class="hljs-punctuation">)</span>-y_id<span class="hljs-punctuation">(</span>k-<span class="hljs-number">1</span><span class="hljs-punctuation">)</span><span class="hljs-punctuation">)</span>/Ts<span class="hljs-comment">;</span><br>    rate_log<span class="hljs-punctuation">(</span>k<span class="hljs-punctuation">)</span> = rate<span class="hljs-comment">;</span><br><br>    if t_id<span class="hljs-punctuation">(</span>k<span class="hljs-punctuation">)</span> &gt;= min_time<br>        if rate &lt; rate_threshold<br>            stable_count = stable_count + <span class="hljs-number">1</span><span class="hljs-comment">;</span><br>        else<br>            stable_count = <span class="hljs-number">0</span><span class="hljs-comment">;</span><br>        end<br>    end<br><br>    % 自动结束激励<br>    if stable_count &gt;= stable_required<br>        t_switch = t_id<span class="hljs-punctuation">(</span>k<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>        u_id_log<span class="hljs-punctuation">(</span>k<span class="hljs-punctuation">)</span> = u_min<span class="hljs-comment">;</span><br>        break<span class="hljs-comment">;</span><br>    else<br>        u_id_log<span class="hljs-punctuation">(</span>k<span class="hljs-punctuation">)</span> = u_id<span class="hljs-comment">;</span><br>    end<br>end<br><br>if isnan<span class="hljs-punctuation">(</span>t_switch<span class="hljs-punctuation">)</span><br>    error<span class="hljs-punctuation">(</span>&#x27;辨识超时：未达到稳态判据。&#x27;<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>end<br><br>% 截取有效辨识数据<br>last = k<span class="hljs-comment">;</span><br>t_id = t_id<span class="hljs-punctuation">(</span><span class="hljs-number">1</span>:last<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>y_id = y_id<span class="hljs-punctuation">(</span><span class="hljs-number">1</span>:last<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>u_id_log = u_id_log<span class="hljs-punctuation">(</span><span class="hljs-number">1</span>:last<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>rate_log = rate_log<span class="hljs-punctuation">(</span><span class="hljs-number">1</span>:last<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br><br>%% <span class="hljs-number">6</span>. 离散参数转换为连续模型<br>a_est = theta<span class="hljs-punctuation">(</span><span class="hljs-number">1</span><span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>b_est = theta<span class="hljs-punctuation">(</span><span class="hljs-number">2</span><span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br><br>if ~<span class="hljs-punctuation">(</span>a_est &gt; <span class="hljs-number">0</span> &amp;&amp; a_est &lt; <span class="hljs-number">1</span><span class="hljs-punctuation">)</span><br>    error<span class="hljs-punctuation">(</span>&#x27;辨识得到的 <span class="hljs-keyword">a</span> 不在 <span class="hljs-punctuation">(</span><span class="hljs-number">0</span>,<span class="hljs-number">1</span><span class="hljs-punctuation">)</span> 内，无法可靠转换时间常数。&#x27;<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>end<br><br>K_est = b_est/<span class="hljs-punctuation">(</span><span class="hljs-number">1</span>-a_est<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>tau_est = -Ts/log<span class="hljs-punctuation">(</span>a_est<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br><br>fprintf<span class="hljs-punctuation">(</span>&#x27;\n========== RLS 辨识结果 ==========\n&#x27;<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>fprintf<span class="hljs-punctuation">(</span>&#x27;真实 K = %.<span class="hljs-number">5</span>f, 辨识 K = %.<span class="hljs-number">5</span>f\n&#x27;,K_real,K_est<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>fprintf<span class="hljs-punctuation">(</span>&#x27;真实 tau = %.<span class="hljs-number">5</span>f s, 辨识 tau = %.<span class="hljs-number">5</span>f s\n&#x27;,...<br>        tau_real,tau_est<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>fprintf<span class="hljs-punctuation">(</span>&#x27;辨识结束时间 = %.<span class="hljs-number">3</span>f s\n&#x27;,t_switch<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>fprintf<span class="hljs-punctuation">(</span>&#x27;辨识参数 <span class="hljs-keyword">a</span> = %.<span class="hljs-number">7</span>f, b = %.<span class="hljs-number">7</span>f\n&#x27;,a_est,b_est<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br><br>%% <span class="hljs-number">7</span>. 由模型计算 PI 参数<br>% IMC-PI：lambda_c = tau/<span class="hljs-number">2</span><br>lambda_c = max<span class="hljs-punctuation">(</span>tau_est/<span class="hljs-number">2</span>,Ts<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br><br>Kp = tau_est/<span class="hljs-punctuation">(</span>K_est*lambda_c<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>Ti = tau_est<span class="hljs-comment">;</span><br>Ki = Kp/Ti<span class="hljs-comment">;</span><br>Kd = <span class="hljs-number">0</span><span class="hljs-comment">;</span><br><br>fprintf<span class="hljs-punctuation">(</span>&#x27;\n========== PI 参数 ==========\n&#x27;<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>fprintf<span class="hljs-punctuation">(</span>&#x27;Kp = %.<span class="hljs-number">6</span>f\n&#x27;,Kp<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>fprintf<span class="hljs-punctuation">(</span>&#x27;Ki = %.<span class="hljs-number">6</span>f\n&#x27;,Ki<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>fprintf<span class="hljs-punctuation">(</span>&#x27;Kd = %.<span class="hljs-number">6</span>f\n&#x27;,Kd<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>fprintf<span class="hljs-punctuation">(</span>&#x27;Ti = %.<span class="hljs-number">6</span>f s\n&#x27;,Ti<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br><br>%% <span class="hljs-number">8</span>. 增量式 PI 闭环仿真<br>T_closed = <span class="hljs-number">30</span><span class="hljs-comment">;</span><br>Ncl = round<span class="hljs-punctuation">(</span>T_closed/Ts<span class="hljs-punctuation">)</span>+<span class="hljs-number">1</span><span class="hljs-comment">;</span><br>t_cl = <span class="hljs-punctuation">(</span><span class="hljs-number">0</span>:Ncl-<span class="hljs-number">1</span><span class="hljs-punctuation">)</span>*Ts<span class="hljs-comment">;</span><br><br>r = <span class="hljs-number">1</span>.<span class="hljs-number">0</span><span class="hljs-comment">;</span><br>y_cl = zeros<span class="hljs-punctuation">(</span><span class="hljs-number">1</span>,Ncl<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>u_cl = zeros<span class="hljs-punctuation">(</span><span class="hljs-number">1</span>,Ncl<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>e_cl = zeros<span class="hljs-punctuation">(</span><span class="hljs-number">1</span>,Ncl<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br><br>e1 = <span class="hljs-number">0</span><span class="hljs-comment">;</span><br>u_hold = <span class="hljs-number">0</span><span class="hljs-comment">;</span><br><br>for k = <span class="hljs-number">2</span>:Ncl<br><br>    e = r-y_cl<span class="hljs-punctuation">(</span>k-<span class="hljs-number">1</span><span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br><br>    % 增量式 PI<br>    du = Kp*<span class="hljs-punctuation">(</span>e-e1<span class="hljs-punctuation">)</span> + Ki*Ts*e<span class="hljs-comment">;</span><br><br>    u_try = u_hold+du<span class="hljs-comment">;</span><br>    u_new = min<span class="hljs-punctuation">(</span>max<span class="hljs-punctuation">(</span>u_try,u_min<span class="hljs-punctuation">)</span>,u_max<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br><br>    % 简单增量式抗饱和<br>    if <span class="hljs-punctuation">(</span>u_try &gt; u_max &amp;&amp; du &gt; <span class="hljs-number">0</span><span class="hljs-punctuation">)</span> || ...<br>       <span class="hljs-punctuation">(</span>u_try &lt; u_min &amp;&amp; du &lt; <span class="hljs-number">0</span><span class="hljs-punctuation">)</span><br>        u_new = u_hold<span class="hljs-comment">;</span><br>    end<br><br>    u_hold = u_new<span class="hljs-comment">;</span><br>    e1 = e<span class="hljs-comment">;</span><br><br>    u_cl<span class="hljs-punctuation">(</span>k<span class="hljs-punctuation">)</span> = u_hold<span class="hljs-comment">;</span><br>    e_cl<span class="hljs-punctuation">(</span>k<span class="hljs-punctuation">)</span> = e<span class="hljs-comment">;</span><br><br>    % 使用真实对象进行闭环验证<br>    y_cl<span class="hljs-punctuation">(</span>k<span class="hljs-punctuation">)</span> = a_real*y_cl<span class="hljs-punctuation">(</span>k-<span class="hljs-number">1</span><span class="hljs-punctuation">)</span> + ...<br>              b_real*u_cl<span class="hljs-punctuation">(</span>k-<span class="hljs-number">1</span><span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>end<br><br>%% <span class="hljs-number">9</span>. 绘图<br>figure<span class="hljs-punctuation">(</span>&#x27;Name&#x27;,&#x27;RLS自动辨识&#x27;<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br><br>subplot<span class="hljs-punctuation">(</span><span class="hljs-number">3</span>,<span class="hljs-number">1</span>,<span class="hljs-number">1</span><span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>plot<span class="hljs-punctuation">(</span>t_id,y_id,&#x27;LineWidth&#x27;,<span class="hljs-number">1</span>.<span class="hljs-number">4</span><span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>grid on<span class="hljs-comment">;</span><br>ylabel<span class="hljs-punctuation">(</span>&#x27;y&#x27;<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>title<span class="hljs-punctuation">(</span>&#x27;半量程激励响应&#x27;<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>xline<span class="hljs-punctuation">(</span>t_switch,&#x27;--r&#x27;,&#x27;结束时刻&#x27;<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br><br>subplot<span class="hljs-punctuation">(</span><span class="hljs-number">3</span>,<span class="hljs-number">1</span>,<span class="hljs-number">2</span><span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>stairs<span class="hljs-punctuation">(</span>t_id,u_id_log,&#x27;LineWidth&#x27;,<span class="hljs-number">1</span>.<span class="hljs-number">4</span><span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>grid on<span class="hljs-comment">;</span><br>ylabel<span class="hljs-punctuation">(</span>&#x27;u&#x27;<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>title<span class="hljs-punctuation">(</span>&#x27;辨识输入&#x27;<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>xline<span class="hljs-punctuation">(</span>t_switch,&#x27;--r&#x27;<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br><br>subplot<span class="hljs-punctuation">(</span><span class="hljs-number">3</span>,<span class="hljs-number">1</span>,<span class="hljs-number">3</span><span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>plot<span class="hljs-punctuation">(</span>t_id,rate_log,&#x27;LineWidth&#x27;,<span class="hljs-number">1</span>.<span class="hljs-number">2</span><span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>hold on<span class="hljs-comment">;</span><br>yline<span class="hljs-punctuation">(</span>rate_threshold,&#x27;--r&#x27;,&#x27;阈值&#x27;<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>grid on<span class="hljs-comment">;</span><br>xlabel<span class="hljs-punctuation">(</span>&#x27;时间 <span class="hljs-punctuation">(</span>s<span class="hljs-punctuation">)</span>&#x27;<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>ylabel<span class="hljs-punctuation">(</span>&#x27;|dy/dt|&#x27;<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>title<span class="hljs-punctuation">(</span>&#x27;输出变化率&#x27;<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>xline<span class="hljs-punctuation">(</span>t_switch,&#x27;--k&#x27;<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br><br>figure<span class="hljs-punctuation">(</span>&#x27;Name&#x27;,&#x27;辨识模型计算PI并闭环验证&#x27;<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br><br>subplot<span class="hljs-punctuation">(</span><span class="hljs-number">2</span>,<span class="hljs-number">1</span>,<span class="hljs-number">1</span><span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>plot<span class="hljs-punctuation">(</span>t_cl,y_cl,&#x27;LineWidth&#x27;,<span class="hljs-number">1</span>.<span class="hljs-number">5</span><span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>hold on<span class="hljs-comment">;</span><br>yline<span class="hljs-punctuation">(</span>r,&#x27;--r&#x27;,&#x27;目标值&#x27;<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>grid on<span class="hljs-comment">;</span><br>ylabel<span class="hljs-punctuation">(</span>&#x27;输出 y&#x27;<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>title<span class="hljs-punctuation">(</span>&#x27;闭环输出&#x27;<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br><br>subplot<span class="hljs-punctuation">(</span><span class="hljs-number">2</span>,<span class="hljs-number">1</span>,<span class="hljs-number">2</span><span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>stairs<span class="hljs-punctuation">(</span>t_cl,u_cl,&#x27;LineWidth&#x27;,<span class="hljs-number">1</span>.<span class="hljs-number">4</span><span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>grid on<span class="hljs-comment">;</span><br>xlabel<span class="hljs-punctuation">(</span>&#x27;时间 <span class="hljs-punctuation">(</span>s<span class="hljs-punctuation">)</span>&#x27;<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>ylabel<span class="hljs-punctuation">(</span>&#x27;输入 u&#x27;<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>title<span class="hljs-punctuation">(</span>&#x27;增量式 PI 控制输入&#x27;<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>ylim<span class="hljs-punctuation">(</span>[u_min-<span class="hljs-number">0</span>.<span class="hljs-number">1</span>,u_max+<span class="hljs-number">0</span>.<span class="hljs-number">1</span>]<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br><br></code></pre></td></tr></table></figure>
+</details>
+
+
+
+                
+              </div>
+            
+            <hr/>
+            <div>
+              <div class="post-metas my-3">
+  
+    <div class="post-meta mr-3 d-flex align-items-center">
+      <i class="iconfont icon-category"></i>
+      
+
+<span class="category-chains">
+  
+  
+    
+      <span class="category-chain">
+        
+  <a href="/categories/%E6%8A%80%E6%9C%AF%E7%AC%94%E8%AE%B0/" class="category-chain-item">技术笔记</a>
+  
+  
+
+      </span>
+    
+  
+</span>
+
+    </div>
+  
+  
+    <div class="post-meta">
+      <i class="iconfont icon-tags"></i>
+      
+        <a href="/tags/%E6%8E%A7%E5%88%B6%E7%90%86%E8%AE%BA/" class="print-no-link">#控制理论</a>
+      
+        <a href="/tags/PID/" class="print-no-link">#PID</a>
+      
+    </div>
+  
+</div>
+
+
+              
+  
+
+  <div class="license-box my-3">
+    <div class="license-title">
+      <div>PID自整定：继电器法与最小二乘辨识</div>
+      <div>https://babuqu.github.io/2026/10/27/PID自整定/PID自整定/</div>
+    </div>
+    <div class="license-meta">
+      
+        <div class="license-meta-item">
+          <div>作者</div>
+          <div>babuqu</div>
+        </div>
+      
+      
+        <div class="license-meta-item license-meta-date">
+          <div>发布于</div>
+          <div>2026年10月27日</div>
+        </div>
+      
+      
+      
+        <div class="license-meta-item">
+          <div>许可协议</div>
+          <div>
+            
+              
+              
+                <a class="print-no-link" target="_blank" href="https://creativecommons.org/licenses/by/4.0/">
+                  <span class="hint--top hint--rounded" aria-label="BY - 署名">
+                    <i class="iconfont icon-cc-by"></i>
+                  </span>
+                </a>
+              
+            
+          </div>
+        </div>
+      
+    </div>
+    <div class="license-icon iconfont"></div>
+  </div>
+
+
+
+              
+                <div class="post-prevnext my-3">
+                  <article class="post-prev col-6">
+                    
+                    
+                  </article>
+                  <article class="post-next col-6">
+                    
+                    
+                      <a href="/2026/10/20/%E8%AE%BA%E6%96%87/%E8%AE%BA%E6%96%87/" title="论文">
+                        <span class="hidden-mobile">论文</span>
+                        <span class="visible-mobile">下一篇</span>
+                        <i class="iconfont icon-arrowright"></i>
+                      </a>
+                    
+                  </article>
+                </div>
+              
+            </div>
+
+            
+          </article>
+        </div>
+      </div>
+    </div>
+
+    <div class="side-col d-none d-lg-block col-lg-2">
+      
+  <aside class="sidebar" style="margin-left: -1rem">
+    <div id="toc">
+  <p class="toc-header">
+    <i class="iconfont icon-list"></i>
+    <span>目录</span>
+  </p>
+  <div class="toc-body" id="toc-body"></div>
+</div>
+
+
+
+  </aside>
+
+
+    </div>
+  </div>
+</div>
+
+
+
+
+
+  
+
+
+
+  
+
+
+
+  
+
+
+
+  
+
+
+
+  
+
+
+  
+  
+
+
+
+
+
+
+
+
+
+    
+
+    
+      <a id="scroll-top-button" aria-label="TOP" href="#" role="button">
+        <i class="iconfont icon-arrowup" aria-hidden="true"></i>
+      </a>
+    
+
+    
+      <div class="modal fade" id="modalSearch" tabindex="-1" role="dialog" aria-labelledby="ModalLabel"
+     aria-hidden="true">
+  <div class="modal-dialog modal-dialog-scrollable modal-lg" role="document">
+    <div class="modal-content">
+      <div class="modal-header text-center">
+        <h4 class="modal-title w-100 font-weight-bold">搜索</h4>
+        <button type="button" id="local-search-close" class="close" data-dismiss="modal" aria-label="Close">
+          <span aria-hidden="true">&times;</span>
+        </button>
+      </div>
+      <div class="modal-body mx-3">
+        <div class="md-form mb-5">
+          <input type="text" id="local-search-input" class="form-control validate">
+          <label data-error="x" data-success="v" for="local-search-input">关键词</label>
+        </div>
+        <div class="list-group" id="local-search-result"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+    
+
+    
+  </main>
+
+  <footer>
+    <div class="footer-inner">
+  
+    <div class="footer-content">
+       <a href="https://hexo.io" target="_blank" rel="nofollow noopener"><span>Hexo</span></a> <i class="iconfont icon-love"></i> <a href="https://github.com/fluid-dev/hexo-theme-fluid" target="_blank" rel="nofollow noopener"><span>Fluid</span></a> 
+    </div>
+  
+  
+  
+</div>
+
+  </footer>
+
+  <!-- Scripts -->
+  
+  <script  src="https://lib.baomitu.com/nprogress/0.2.0/nprogress.min.js" ></script>
+  <link  rel="stylesheet" href="https://lib.baomitu.com/nprogress/0.2.0/nprogress.min.css" />
+
+  <script>
+    NProgress.configure({"showSpinner":false,"trickleSpeed":100})
+    NProgress.start()
+    window.addEventListener('load', function() {
+      NProgress.done();
+    })
+  </script>
+
+
+<script  src="https://lib.baomitu.com/jquery/3.6.4/jquery.min.js" ></script>
+<script  src="https://lib.baomitu.com/twitter-bootstrap/4.6.1/js/bootstrap.min.js" ></script>
+<script  src="/js/events.js" ></script>
+<script  src="/js/plugins.js" ></script>
+
+
+  <script  src="https://lib.baomitu.com/typed.js/2.0.12/typed.min.js" ></script>
+  <script>
+    (function (window, document) {
+      var typing = Fluid.plugins.typing;
+      var subtitle = document.getElementById('subtitle');
+      if (!subtitle || !typing) {
+        return;
+      }
+      var text = subtitle.getAttribute('data-typed-text');
+      
+        typing(text);
+      
+    })(window, document);
+  </script>
+
+
+
+
+  
+    <script  src="/js/img-lazyload.js" ></script>
+  
+
+
+
+
+  
+<script>
+  Fluid.utils.createScript('https://lib.baomitu.com/tocbot/4.20.1/tocbot.min.js', function() {
+    var toc = jQuery('#toc');
+    if (toc.length === 0 || !window.tocbot) { return; }
+    var boardCtn = jQuery('#board-ctn');
+    var boardTop = boardCtn.offset().top;
+
+    function isExpandAllEnabled() {
+      return CONFIG.toc && CONFIG.toc.expand_all === true;
+    }
+    function expandAllToc() {
+      if (!isExpandAllEnabled()) { return; }
+      jQuery('#toc-body .tocbot-is-collapsed').removeClass('tocbot-is-collapsed');
+    }
+    function updateTocToggle($li, $childList) {
+      var $toggle = $li.children('.toc-toggle');
+      if ($toggle.length === 0) { return; }
+      var collapsed = $childList.hasClass('tocbot-is-collapsed');
+      $toggle
+        .toggleClass('toc-toggle-collapsed', collapsed)
+        .toggleClass('toc-toggle-expanded', !collapsed);
+    }
+    function bindTocToggle() {
+      if (!isExpandAllEnabled()) { return; }
+      jQuery('#toc-body .toc-list-item').each(function() {
+        var $li = jQuery(this);
+        var $childList = $li.children('ol');
+        if ($childList.length === 0) {
+          if ($li.children('.toc-toggle').length === 0) {
+            $li.prepend('<span class="toc-toggle toc-toggle-placeholder" aria-hidden="true">›</span>');
+          }
+          return;
+        }
+
+        if ($li.children('.toc-toggle').length === 0) {
+          $li.prepend('<span class="toc-toggle toc-toggle-expanded" aria-hidden="true">›</span>');
+        }
+        updateTocToggle($li, $childList);
+      });
+      jQuery('#toc-body').off('click.tocToggle').on('click.tocToggle', '.toc-toggle', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        var $li = jQuery(this).parent('.toc-list-item');
+        var $childList = $li.children('ol');
+        if ($childList.length === 0) { return; }
+        $childList.toggleClass('tocbot-is-collapsed');
+        updateTocToggle($li, $childList);
+      });
+      if (!window.__tocToggleObserver) {
+        window.__tocToggleObserver = new MutationObserver(function(mutations) {
+          mutations.forEach(function(mutation) {
+            if (mutation.type !== 'attributes' || mutation.attributeName !== 'class') { return; }
+            var $list = jQuery(mutation.target);
+            var $li = $list.parent('.toc-list-item');
+            if ($li.length === 0) { return; }
+            updateTocToggle($li, $list);
+          });
+        });
+        jQuery('#toc-body ol').each(function() {
+          window.__tocToggleObserver.observe(this, { attributes: true });
+        });
+      }
+    }
+    var tocConfig = Object.assign({
+      tocSelector     : '#toc-body',
+      contentSelector : '.markdown-body',
+      linkClass       : 'tocbot-link',
+      activeLinkClass : 'tocbot-active-link',
+      listClass       : 'tocbot-list',
+      isCollapsedClass: 'tocbot-is-collapsed',
+      collapsibleClass: 'tocbot-is-collapsible',
+      scrollSmooth    : true,
+      includeTitleTags: true,
+      headingsOffset  : -boardTop,
+    }, CONFIG.toc);
+    if (isExpandAllEnabled()) {
+      tocConfig.collapseDepth = 6;
+    }
+    window.tocbot.init(tocConfig);
+    if (toc.find('.toc-list-item').length > 0) {
+      toc.css('visibility', 'visible');
+    }
+    expandAllToc();
+    bindTocToggle();
+
+    Fluid.events.registerRefreshCallback(function() {
+      if ('tocbot' in window) {
+        tocbot.refresh();
+        var toc = jQuery('#toc');
+        if (toc.length === 0 || !tocbot) {
+          return;
+        }
+        if (toc.find('.toc-list-item').length > 0) {
+          toc.css('visibility', 'visible');
+        }
+        expandAllToc();
+        bindTocToggle();
+      }
+    });
+  });
+</script>
+
+
+  <script src=https://lib.baomitu.com/clipboard.js/2.0.11/clipboard.min.js></script>
+
+  <script>Fluid.plugins.codeWidget();</script>
+
+
+  
+<script>
+  Fluid.utils.createScript('https://lib.baomitu.com/anchor-js/5.0.0/anchor.min.js', function() {
+    window.anchors.options = {
+      placement: CONFIG.anchorjs.placement,
+      visible  : CONFIG.anchorjs.visible
+    };
+    if (CONFIG.anchorjs.icon) {
+      window.anchors.options.icon = CONFIG.anchorjs.icon;
+    }
+    var el = (CONFIG.anchorjs.element || 'h1,h2,h3,h4,h5,h6').split(',');
+    var res = [];
+    for (var item of el) {
+      res.push('.markdown-body > ' + item.trim());
+    }
+    if (CONFIG.anchorjs.placement === 'left') {
+      window.anchors.options.class = 'anchorjs-link-left';
+    }
+    window.anchors.add(res.join(', '));
+
+    Fluid.events.registerRefreshCallback(function() {
+      if ('anchors' in window) {
+        anchors.removeAll();
+        var el = (CONFIG.anchorjs.element || 'h1,h2,h3,h4,h5,h6').split(',');
+        var res = [];
+        for (var item of el) {
+          res.push('.markdown-body > ' + item.trim());
+        }
+        if (CONFIG.anchorjs.placement === 'left') {
+          anchors.options.class = 'anchorjs-link-left';
+        }
+        anchors.add(res.join(', '));
+      }
+    });
+  });
+</script>
+
+
+  
+<script>
+  Fluid.utils.createScript('https://lib.baomitu.com/fancybox/3.5.7/jquery.fancybox.min.js', function() {
+    Fluid.plugins.fancyBox();
+  });
+</script>
+
+
+  <script>Fluid.plugins.imageCaption();</script>
+
+  
+      <script>
+        if (!window.MathJax) {
+          window.MathJax = {
+            tex    : {
+              inlineMath: { '[+]': [['$', '$']] }
+            },
+            loader : {
+              load: ['ui/lazy']
+            },
+            options: {
+              renderActions: {
+                insertedScript: [200, () => {
+                  document.querySelectorAll('mjx-container').forEach(node => {
+                    let target = node.parentNode;
+                    if (target.nodeName.toLowerCase() === 'li') {
+                      target.parentNode.classList.add('has-jax');
+                    }
+                  });
+                }, '', false]
+              }
+            }
+          };
+        } else {
+          MathJax.startup.document.state(0);
+          MathJax.texReset();
+          MathJax.typeset();
+          MathJax.typesetPromise();
+        }
+
+        Fluid.events.registerRefreshCallback(function() {
+          if ('MathJax' in window && MathJax.startup.document && typeof MathJax.startup.document.state === 'function') {
+            MathJax.startup.document.state(0);
+            MathJax.texReset();
+            MathJax.typeset();
+            MathJax.typesetPromise();
+          }
+        });
+      </script>
+    
+
+  <script  src="https://lib.baomitu.com/mathjax/3.2.2/es5/tex-mml-chtml.js" ></script>
+
+  <script  src="/js/local-search.js" ></script>
+
+
+
+
+  
+<script src="/js/mermaid-init.js"></script>
+
+
+
+<!-- 主题的启动项，将它保持在最底部 -->
+<!-- the boot of the theme, keep it at the bottom -->
+<script  src="/js/boot.js" ></script>
+
+
+  
+
+  <noscript>
+    <div class="noscript-warning">博客在允许 JavaScript 运行的环境下浏览效果更佳</div>
+  </noscript>
+</body>
+</html>

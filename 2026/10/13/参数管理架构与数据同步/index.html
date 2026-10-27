@@ -1,0 +1,982 @@
+
+
+<!DOCTYPE html>
+<html lang="zh-CN" data-default-color-scheme=auto>
+
+
+
+<head>
+  <meta charset="UTF-8">
+
+  <link rel="apple-touch-icon" sizes="76x76" href="/img/fluid.png">
+  <link rel="icon" href="/img/fluid.png">
+  
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, shrink-to-fit=no">
+  <meta http-equiv="x-ua-compatible" content="ie=edge">
+  
+  <meta name="theme-color" content="#2f4154">
+  <meta name="author" content="babuqu">
+  <meta name="keywords" content="">
+  
+    <meta name="description" content="本文根据 param_t g_param、参数映射表 g_map、Modbus 保持寄存器 HoldingReg 和速度 PID 运行参数 g_speed_pid 的实现，梳理参数从上电加载、通信修改到控制器应用的过程，并总结这种分层方式的优缺点。">
+<meta property="og:type" content="article">
+<meta property="og:title" content="参数管理架构：参数源、Modbus 镜像与运行镜像">
+<meta property="og:url" content="https://babuqu.github.io/2026/10/13/%E5%8F%82%E6%95%B0%E7%AE%A1%E7%90%86%E6%9E%B6%E6%9E%84%E4%B8%8E%E6%95%B0%E6%8D%AE%E5%90%8C%E6%AD%A5/index.html">
+<meta property="og:site_name" content="Hexo">
+<meta property="og:description" content="本文根据 param_t g_param、参数映射表 g_map、Modbus 保持寄存器 HoldingReg 和速度 PID 运行参数 g_speed_pid 的实现，梳理参数从上电加载、通信修改到控制器应用的过程，并总结这种分层方式的优缺点。">
+<meta property="og:locale" content="zh_CN">
+<meta property="article:published_time" content="2026-10-13T13:30:00.000Z">
+<meta property="article:modified_time" content="2026-10-13T14:23:40.290Z">
+<meta property="article:author" content="John Doe">
+<meta property="article:tag" content="Modbus">
+<meta property="article:tag" content="参数管理">
+<meta property="article:tag" content="嵌入式">
+<meta name="twitter:card" content="summary_large_image">
+  
+  
+  
+  <title>参数管理架构：参数源、Modbus 镜像与运行镜像 - Hexo</title>
+
+  <link  rel="stylesheet" href="https://lib.baomitu.com/twitter-bootstrap/4.6.1/css/bootstrap.min.css" />
+
+
+
+  <link  rel="stylesheet" href="https://lib.baomitu.com/github-markdown-css/4.0.0/github-markdown.min.css" />
+
+  <link  rel="stylesheet" href="https://lib.baomitu.com/hint.css/2.7.0/hint.min.css" />
+
+  <link  rel="stylesheet" href="https://lib.baomitu.com/fancybox/3.5.7/jquery.fancybox.min.css" />
+
+
+
+<!-- 主题依赖的图标库，不要自行修改 -->
+<!-- Do not modify the link that theme dependent icons -->
+
+<link rel="stylesheet" href="//at.alicdn.com/t/c/font_1749284_5i9bdhy70f8.css">
+
+
+
+<link rel="stylesheet" href="//at.alicdn.com/t/c/font_1736178_k526ubmyhba.css">
+
+
+<link  rel="stylesheet" href="/css/main.css" />
+
+
+  <link id="highlight-css" rel="stylesheet" href="/css/highlight.css" />
+  
+    <link id="highlight-css-dark" rel="stylesheet" href="/css/highlight-dark.css" />
+  
+
+
+
+
+  <script id="fluid-configs">
+    var Fluid = window.Fluid || {};
+    Fluid.ctx = Object.assign({}, Fluid.ctx)
+    var CONFIG = {"hostname":"babuqu.github.io","root":"/","version":"1.9.9","typing":{"enable":true,"typeSpeed":70,"cursorChar":"_","loop":false,"scope":[]},"anchorjs":{"enable":true,"element":"h1,h2,h3,h4,h5,h6","placement":"left","visible":"hover","icon":""},"progressbar":{"enable":true,"height_px":3,"color":"#29d","options":{"showSpinner":false,"trickleSpeed":100}},"code_language":{"enable":true,"default":"TEXT"},"copy_btn":true,"image_caption":{"enable":true},"image_zoom":{"enable":true,"img_url_replace":["",""]},"toc":{"enable":true,"expand_all":true,"placement":"right","headingSelector":"h1,h2,h3,h4,h5,h6","collapseDepth":0},"lazyload":{"enable":true,"loading_img":"/img/loading.gif","onlypost":false,"offset_factor":2},"web_analytics":{"enable":false,"follow_dnt":true,"baidu":null,"google":{"measurement_id":null},"tencent":{"sid":null,"cid":null},"leancloud":{"app_id":null,"app_key":null,"server_url":null,"path":"window.location.pathname","ignore_local":false},"openkounter":{"server_url":"https://open-kounter.mintimate.cn","path":"window.location.pathname","ignore_local":false},"umami":{"src":null,"website_id":null,"domains":null,"start_time":"2024-01-01T00:00:00.000Z","token":null,"api_server":null}},"search_path":"/local-search.xml","include_content_in_search":true};
+
+    if (CONFIG.web_analytics.follow_dnt) {
+      var dntVal = navigator.doNotTrack || window.doNotTrack || navigator.msDoNotTrack;
+      Fluid.ctx.dnt = dntVal && (dntVal.startsWith('1') || dntVal.startsWith('yes') || dntVal.startsWith('on'));
+    }
+  </script>
+  <script  src="/js/utils.js" ></script>
+  <script  src="/js/color-schema.js" ></script>
+  
+
+
+  
+<meta name="generator" content="Hexo 8.1.2"></head>
+
+
+<body>
+  
+
+  <header>
+    
+
+<div class="header-inner" style="height: 70vh;">
+  <nav id="navbar" class="navbar fixed-top  navbar-expand-lg navbar-dark scrolling-navbar">
+  <div class="container">
+    <a class="navbar-brand" href="/">
+      <strong>Fluid</strong>
+    </a>
+
+    <button id="navbar-toggler-btn" class="navbar-toggler" type="button" data-toggle="collapse"
+            data-target="#navbarSupportedContent"
+            aria-controls="navbarSupportedContent" aria-expanded="false" aria-label="Toggle navigation">
+      <div class="animated-icon"><span></span><span></span><span></span></div>
+    </button>
+
+    <!-- Collapsible content (desktop) -->
+    <div class="collapse navbar-collapse" id="navbarSupportedContent">
+      <ul class="navbar-nav ml-auto text-center">
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/" target="_self">
+                <i class="iconfont icon-home-fill"></i>
+                <span>首页</span>
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/archives/" target="_self">
+                <i class="iconfont icon-archive-fill"></i>
+                <span>归档</span>
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/categories/" target="_self">
+                <i class="iconfont icon-category-fill"></i>
+                <span>分类</span>
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/tags/" target="_self">
+                <i class="iconfont icon-tags-fill"></i>
+                <span>标签</span>
+              </a>
+            </li>
+          
+        
+          
+          
+          
+          
+            <li class="nav-item">
+              <a class="nav-link" href="/about/" target="_self">
+                <i class="iconfont icon-user-fill"></i>
+                <span>关于</span>
+              </a>
+            </li>
+          
+        
+        
+          <li class="nav-item" id="search-btn">
+            <a class="nav-link" target="_self" href="javascript:;" data-toggle="modal" data-target="#modalSearch" aria-label="Search">
+              <i class="iconfont icon-search"></i>
+            </a>
+          </li>
+          
+        
+        
+          <li class="nav-item" id="color-toggle-btn">
+            <a class="nav-link" target="_self" href="javascript:;" aria-label="Color Toggle">
+              <i class="iconfont icon-dark" id="color-toggle-icon"></i>
+            </a>
+          </li>
+        
+      </ul>
+    </div>
+  </div>
+</nav>
+
+<!-- Mobile grid menu overlay -->
+<div id="mobile-grid-menu" class="d-lg-none">
+  <div class="mobile-grid-menu-inner">
+    <div class="container">
+      <div class="row">
+        
+          
+          
+          
+          
+            <div class="col-4 mobile-grid-cell">
+              <a href="/" target="_self">
+                <div class="mobile-grid-item">
+                  <i class="iconfont icon-home-fill"></i>
+                  <span>首页</span>
+                </div>
+              </a>
+            </div>
+          
+        
+          
+          
+          
+          
+            <div class="col-4 mobile-grid-cell">
+              <a href="/archives/" target="_self">
+                <div class="mobile-grid-item">
+                  <i class="iconfont icon-archive-fill"></i>
+                  <span>归档</span>
+                </div>
+              </a>
+            </div>
+          
+        
+          
+          
+          
+          
+            <div class="col-4 mobile-grid-cell">
+              <a href="/categories/" target="_self">
+                <div class="mobile-grid-item">
+                  <i class="iconfont icon-category-fill"></i>
+                  <span>分类</span>
+                </div>
+              </a>
+            </div>
+          
+        
+          
+          
+          
+          
+            <div class="col-4 mobile-grid-cell">
+              <a href="/tags/" target="_self">
+                <div class="mobile-grid-item">
+                  <i class="iconfont icon-tags-fill"></i>
+                  <span>标签</span>
+                </div>
+              </a>
+            </div>
+          
+        
+          
+          
+          
+          
+            <div class="col-4 mobile-grid-cell">
+              <a href="/about/" target="_self">
+                <div class="mobile-grid-item">
+                  <i class="iconfont icon-user-fill"></i>
+                  <span>关于</span>
+                </div>
+              </a>
+            </div>
+          
+        
+        
+          <div class="col-4 mobile-grid-cell" id="mobile-search-btn">
+            <a href="javascript:;" data-toggle="modal" data-target="#modalSearch" aria-label="Search">
+              <div class="mobile-grid-item">
+                <i class="iconfont icon-search"></i>
+                <span>搜索</span>
+              </div>
+            </a>
+          </div>
+        
+        
+          <div class="col-4 mobile-grid-cell" id="mobile-color-toggle-btn"
+               data-label-light="开灯"
+               data-label-dark="关灯">
+            <a href="javascript:;" aria-label="Color Toggle">
+              <div class="mobile-grid-item">
+                <i class="iconfont icon-dark" id="mobile-color-toggle-icon"></i>
+                <span id="mobile-color-toggle-label">关灯</span>
+              </div>
+            </a>
+          </div>
+        
+      </div>
+    </div>
+  </div>
+</div>
+
+  
+
+<div id="banner" class="banner" parallax=true
+     style="background: url('/img/default.png') no-repeat center center; background-size: cover;">
+  <div class="full-bg-img">
+    <div class="mask flex-center" style="background-color: rgba(0, 0, 0, 0.3)">
+      <div class="banner-text text-center fade-in-up">
+        <div class="h2">
+          
+            <span id="subtitle" data-typed-text="参数管理架构：参数源、Modbus 镜像与运行镜像"></span>
+          
+        </div>
+
+        
+          
+  <div class="mt-3">
+    
+    
+      <span class="post-meta">
+        <i class="iconfont icon-date-fill" aria-hidden="true"></i>
+        <time datetime="2026-10-13 21:30" pubdate>
+          2026年10月13日 晚上
+        </time>
+      </span>
+    
+  </div>
+
+  <div class="mt-1">
+    
+      <span class="post-meta mr-2">
+        <i class="iconfont icon-chart"></i>
+        
+          9.1k 字
+        
+      </span>
+    
+
+    
+      <span class="post-meta mr-2">
+        <i class="iconfont icon-clock-fill"></i>
+        
+        
+        
+          77 分钟
+        
+      </span>
+    
+
+    
+    
+  </div>
+
+
+        
+      </div>
+
+      
+    </div>
+  </div>
+</div>
+
+
+
+</div>
+
+  </header>
+
+  <main>
+    
+      
+
+<div class="container-fluid nopadding-x">
+  <div class="row nomargin-x">
+    <div class="side-col d-none d-lg-block col-lg-2">
+      
+
+    </div>
+
+    <div class="col-lg-8 nopadding-x-md">
+      <div class="container nopadding-x-md" id="board-ctn">
+        <div id="board">
+          <article class="post-content mx-auto">
+            <h1 id="seo-header">参数管理架构：参数源、Modbus 镜像与运行镜像</h1>
+            
+            
+              <div class="markdown-body">
+                
+<section class="alert alert-info" aria-label="文章系列">
+  <strong>嵌入式开发</strong>
+  <span> · 本文为第 4 篇</span>
+  <ol class="mb-0 mt-2">
+    
+      <li>
+        
+          <a href="/2026/10/08/%E5%B5%8C%E5%85%A5%E5%BC%8F%E5%BC%80%E5%8F%91%E7%AC%94%E8%AE%B0/%E5%B5%8C%E5%85%A5%E5%BC%8F%E5%BC%80%E5%8F%91%E7%AC%94%E8%AE%B0/">嵌入式开发笔记</a>
+        
+      </li>
+    
+      <li>
+        
+          <a href="/2026/10/09/%E5%A4%9A%E9%80%9A%E9%81%93NTC%E6%B8%A9%E5%BA%A6%E9%87%87%E6%A0%B7/%E5%A4%9A%E9%80%9A%E9%81%93NTC%E6%B8%A9%E5%BA%A6%E9%87%87%E6%A0%B7/">多通道NTC温度采样</a>
+        
+      </li>
+    
+      <li>
+        
+          <a href="/2026/10/13/BLDC%E6%97%A0%E4%BC%A0%E6%84%9F%E5%99%A8%E8%BD%AC%E9%80%9F%E6%8E%A7%E5%88%B6/BLDC%E6%97%A0%E4%BC%A0%E6%84%9F%E5%99%A8%E8%BD%AC%E9%80%9F%E6%8E%A7%E5%88%B6/">BLDC无传感器转速控制</a>
+        
+      </li>
+    
+      <li aria-current=&#34;page&#34;>
+        
+          <strong>参数管理架构：参数源、Modbus 镜像与运行镜像</strong>
+        
+      </li>
+    
+  </ol>
+</section>
+
+
+                <p>本文根据 <code>param_t g_param</code>、参数映射表 <code>g_map</code>、Modbus 保持寄存器 <code>HoldingReg</code> 和速度 PID 运行参数 <code>g_speed_pid</code> 的实现，梳理参数从上电加载、通信修改到控制器应用的过程，并总结这种分层方式的优缺点。</p>
+<span id="more"></span>
+
+<h2 id="一、架构中的三份数据"><a href="#一、架构中的三份数据" class="headerlink" title="一、架构中的三份数据"></a>一、架构中的三份数据</h2><p>这套设计把“配置值”“通信表示”和“控制器当前使用值”分开保存：</p>
+<table>
+<thead>
+<tr>
+<th>数据</th>
+<th>角色</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>g_param</code></td>
+<td>参数源，唯一真值</td>
+<td>保存目标转速、PID 系数、积分限幅、输出限幅和标志位等业务参数。需要持久化时，Flash 也应保存它。</td>
+</tr>
+<tr>
+<td><code>HoldingReg</code></td>
+<td>Modbus 通信镜像</td>
+<td>按寄存器地址和协议格式呈现参数，供上位机读取或写入。它是协议侧的副本，不应成为系统内部配置的最终权威。</td>
+</tr>
+<tr>
+<td><code>g_speed_pid</code></td>
+<td>运行镜像</td>
+<td>PID 控制器实际读取的运行参数。将配置值应用到这里后，控制算法开始使用新值。</td>
+</tr>
+</tbody></table>
+<p>正常的数据方向如下：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><code class="hljs text">Flash ──加载──&gt; g_param ──发布──&gt; HoldingReg<br>                    │                   │<br>                    │                   └──上位机写入<br>                    │                         │<br>                    │                    解码/校验<br>                    │                         │<br>                    └&lt;──────更新后的参数───────┘<br>                    │<br>                    └──应用──&gt; g_speed_pid<br></code></pre></td></tr></table></figure>
+
+<p>三份数据有各自用途。参数源负责表达配置意图；寄存器镜像负责适配协议；运行镜像负责满足控制器的运行接口。这样可以避免让控制算法直接依赖 Modbus 寄存器布局。</p>
+<h2 id="二、参数映射表"><a href="#二、参数映射表" class="headerlink" title="二、参数映射表"></a>二、参数映射表</h2><p><code>g_map</code> 把参数变量、寄存器地址和换算关系集中描述。例如：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><code class="hljs c">&#123;&amp;g_param.kp, <span class="hljs-number">1</span>, <span class="hljs-number">100000.0f</span>, PARAM_FLOAT&#125;,<br>&#123;&amp;g_param.set_speed, <span class="hljs-number">0</span>, <span class="hljs-number">1.0f</span>, PARAM_S16&#125;,<br></code></pre></td></tr></table></figure>
+
+<p>每一项分别说明参数在内存中的地址、Holding Register 地址、放缩系数和数据类型。<code>Param_ToModbus()</code> 按表把参数编码到寄存器，<code>Param_FromModbus()</code> 则按表反向解码。</p>
+<p>这种做法把重复的字段转换逻辑放进循环里。添加参数时，通常只需扩充结构体和映射表；但表项里的地址、类型、缩放系数和寄存器定义必须彼此一致。</p>
+<h2 id="三、运行时参数更新流程"><a href="#三、运行时参数更新流程" class="headerlink" title="三、运行时参数更新流程"></a>三、运行时参数更新流程</h2><p><code>Param_UpdateFromModbus(HoldingReg)</code> 表示一次从通信镜像到参数源的更新：</p>
+<ol>
+<li>检查寄存器指针是否为空。</li>
+<li><code>Param_FromModbus()</code> 按映射表解码寄存器，写入 <code>g_param</code>。</li>
+<li><code>Param_Sanitize(&amp;g_param)</code> 对参数做范围和关系检查。</li>
+<li>如果校验函数报告修正过参数，通过 <code>Param_Publish()</code> 把修正值重新编码到寄存器镜像。</li>
+<li><code>Param_Apply()</code> 再调用 <code>Param_To_System(&amp;g_param)</code>，更新 PID 使用的运行参数。</li>
+</ol>
+<p>因此预期方向是：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><code class="hljs text">上位机写 HoldingReg → 解码到 g_param → 校验/修正 → 写入 g_speed_pid<br></code></pre></td></tr></table></figure>
+
+<p><code>Param_Publish()</code> 是反方向同步，即把参数源发布到 Modbus 镜像。代码里 <code>Param_Apply()</code> 在更新控制器后又发布一次，确保寄存器反映最终参数值。</p>
+<h2 id="四、上电初始化与持久化"><a href="#四、上电初始化与持久化" class="headerlink" title="四、上电初始化与持久化"></a>四、上电初始化与持久化</h2><p><code>Param_Init_()</code> 按以下顺序恢复配置：</p>
+<ol>
+<li>尝试从 Flash 读取 <code>param_t</code>，并检查读取结果。</li>
+<li>检查 <code>flag</code> 标志位，判断存储内容是否有效。</li>
+<li>读取失败、标志位不正确时调用 <code>Param_InitDefault()</code>；有效读取则调用 <code>Param_Sanitize()</code>。</li>
+<li>调用 <code>Param_To_System()</code>，将参数应用到 PID。</li>
+<li>调用 <code>Param_Publish(HoldingReg)</code>，让通信寄存器与参数源一致。</li>
+</ol>
+<p>持久化接口目前尚未真正实现：<code>Param_SaveToFlash()</code> 和 <code>Param_LoadFromFlash()</code> 中的擦写、读取和 CRC 代码都被注释掉了。当前 <code>Param_LoadFromFlash()</code> 总是返回 <code>0</code>，因此初始化流程会把未从 Flash 验证的数据当作读取成功；实际启用时，需要补上读取失败和 CRC 校验的返回路径。</p>
+<h2 id="五、架构优点"><a href="#五、架构优点" class="headerlink" title="五、架构优点"></a>五、架构优点</h2><ul>
+<li><strong>数据职责明确</strong>：配置源、协议寄存器和控制器运行值相互独立，控制算法不必知道 Modbus 地址和编码规则。</li>
+<li><strong>映射集中管理</strong>：字段转换逻辑集中在 <code>g_map</code> 和统一的编码&#x2F;解码函数里，减少各处散落的寄存器读写代码。</li>
+<li><strong>校验入口统一</strong>：通信更新和上电加载都可以在应用参数前调用 <code>Param_Sanitize()</code>，降低非法配置进入控制环的概率。</li>
+<li><strong>便于扩展协议</strong>：如果增加另一种通信接口，可以单独实现对应的解码和发布层，内部仍以 <code>g_param</code> 为依据。</li>
+<li><strong>运行时应用可控</strong>：参数写入 <code>g_param</code> 后再显式同步到 <code>g_speed_pid</code>，为后续增加生效时机、限速更新或参数保存策略留出空间。</li>
+</ul>
+<h2 id="六、当前实现的缺点与风险"><a href="#六、当前实现的缺点与风险" class="headerlink" title="六、当前实现的缺点与风险"></a>六、当前实现的缺点与风险</h2><h3 id="6-1-映射表的类型安全不足"><a href="#6-1-映射表的类型安全不足" class="headerlink" title="6.1 映射表的类型安全不足"></a>6.1 映射表的类型安全不足</h3><p>映射表使用 <code>void *</code> 一类的通用地址，再在转换函数里一律转成 <code>float *</code>。这要求 <code>param_t</code> 中所有映射字段都是 <code>float</code>。如果 <code>set_speed</code>、限幅字段实际声明为整数，强制转换后会按浮点数解释整数对象，造成错误读写，甚至违反 C 语言的严格别名规则。应让映射表携带明确的字段类型，并通过匹配的指针类型或专用读写函数访问字段。</p>
+<h3 id="6-2-当前-FLOAT-编码无法自然覆盖-32-位浮点数"><a href="#6-2-当前-FLOAT-编码无法自然覆盖-32-位浮点数" class="headerlink" title="6.2 当前 FLOAT 编码无法自然覆盖 32 位浮点数"></a>6.2 当前 FLOAT 编码无法自然覆盖 32 位浮点数</h3><p><code>PARAM_FLOAT</code> 目前只把 <code>float *</code> 的值乘以比例后写入一个 16 位寄存器。这种编码是“定点缩放后压成一个寄存器”，不是原样传输 IEEE 754 浮点数。它有有限的量化精度和表示范围；转换到 <code>uint16_t</code> 时也没有显式检查上溢、负值或取整策略。若需要更高精度或完整浮点范围，应使用两个寄存器承载 32 位值，并明确字序和字节序；否则应明确规定缩放后的有符号&#x2F;无符号范围。</p>
+<h3 id="6-3-寄存器地址和数组长度没有校验"><a href="#6-3-寄存器地址和数组长度没有校验" class="headerlink" title="6.3 寄存器地址和数组长度没有校验"></a>6.3 寄存器地址和数组长度没有校验</h3><p>转换函数直接访问 <code>reg[g_map[i].reg]</code>，没有接收寄存器数量，也没有验证映射地址是否落在 Holding Register 数组范围内。映射表或寄存器布局调整出错时可能越界访问。接口宜同时接收寄存器长度，并在访问前校验地址及 32 位字段所需的连续寄存器数量。</p>
+<h3 id="6-4-校验范围和失败语义不完整"><a href="#6-4-校验范围和失败语义不完整" class="headerlink" title="6.4 校验范围和失败语义不完整"></a>6.4 校验范围和失败语义不完整</h3><p><code>Param_Sanitize()</code> 只限制 PID 系数，并检查最大值是否大于最小值；目标转速没有范围约束，限幅上下界也没有先检查各自可允许的范围。当前超范围处理是钳位，而不是注释所说的“恢复默认值”，两种策略需要明确选择。</p>
+<p>另外，<code>Param_UpdateFromModbus()</code> 在解码后直接改写全局 <code>g_param</code>，然后才校验。若某个字段非法，其他字段仍已更新；它也只在校验发生修正时发布寄存器。因此当输入完全合法时，函数不会发布或持久化，是否需要这些动作应由调用层明确定义。更稳妥的流程是先解码到临时结构体，完整校验通过后再一次性提交，避免半更新状态。</p>
+<h3 id="6-5-校验修正后没有同步到运行镜像"><a href="#6-5-校验修正后没有同步到运行镜像" class="headerlink" title="6.5 校验修正后没有同步到运行镜像"></a>6.5 校验修正后没有同步到运行镜像</h3><p><code>Param_UpdateFromModbus()</code> 如果修正了参数，只会重新发布寄存器；它本身不会调用 <code>Param_To_System()</code>。目前 <code>Param_Apply()</code> 紧接着调用该函数后会同步 PID，所以通过 <code>Param_Apply()</code> 入口时最终能够应用修正值；但若其他调用方单独调用 <code>Param_UpdateFromModbus()</code>，<code>g_speed_pid</code> 会暂时保留旧值。接口命名和职责应明确：要么更新函数只处理参数源，由统一的 Apply 流程完成同步；要么让一个事务式接口完整执行解码、校验和应用。</p>
+<h3 id="6-6-全局共享状态并发访问需要约束"><a href="#6-6-全局共享状态并发访问需要约束" class="headerlink" title="6.6 全局共享状态并发访问需要约束"></a>6.6 全局共享状态并发访问需要约束</h3><p>Modbus 任务、控制循环和 Flash 操作可能并发读写这些结构。若控制中断读取 PID 字段时，主循环正在逐字段更新，控制器可能短暂看到新旧参数混合的状态。应规定参数应用的执行上下文，并根据系统架构使用临界区、双缓冲或版本号机制；Flash 擦写也不宜在实时控制路径中执行。</p>
+<h3 id="6-7-保存策略和写入时机尚未定义"><a href="#6-7-保存策略和写入时机尚未定义" class="headerlink" title="6.7 保存策略和写入时机尚未定义"></a>6.7 保存策略和写入时机尚未定义</h3><p><code>Param_SaveToFlash()</code> 当前没有实际写入，<code>Param_Apply()</code> 里的保存调用也被注释。若每次 Modbus 写入都立即保存，会增加 Flash 磨损；若完全不保存，掉电后配置会丢失。常见方案是在参数通过校验并稳定一段时间后保存，或提供显式保存命令，并使用版本、长度、CRC 和掉电安全的双区&#x2F;双槽更新机制。</p>
+<h2 id="七、建议的数据更新事务"><a href="#七、建议的数据更新事务" class="headerlink" title="七、建议的数据更新事务"></a>七、建议的数据更新事务</h2><p>可以把一次参数修改组织成清晰的提交事务：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><code class="hljs text">复制当前 g_param 到临时对象<br>       ↓<br>从 HoldingReg 解码到临时对象<br>       ↓<br>检查寄存器长度、字段范围和字段关系<br>       ↓<br>校验失败：丢弃临时对象并返回错误<br>校验成功：一次性提交到 g_param<br>       ↓<br>更新 g_speed_pid，并发布规范化后的 HoldingReg<br>       ↓<br>按保存策略写入 Flash<br></code></pre></td></tr></table></figure>
+
+<p>这样的流程把“接收数据”“验证数据”“让新配置生效”和“持久化”作为可区分的阶段。通信处理函数还能返回具体错误码，便于上位机区分非法地址、取值越界、数据校验失败和存储失败。</p>
+<h2 id="八、总结"><a href="#八、总结" class="headerlink" title="八、总结"></a>八、总结</h2><p>这套架构的核心是以 <code>g_param</code> 作为唯一参数源，通过映射层与 Modbus 保持寄存器交互，再把经过校验的参数应用到 PID 运行镜像。分层本身便于维护和扩展；当前主要风险集中在映射表的类型安全、寄存器边界、临时事务提交、并发更新，以及 Flash 读写尚未实现。把这些边界补齐后，参数从通信输入到控制生效、再到掉电恢复的链路会更可靠。</p>
+<figure class="highlight dns"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br><span class="line">72</span><br><span class="line">73</span><br><span class="line">74</span><br><span class="line">75</span><br><span class="line">76</span><br><span class="line">77</span><br><span class="line">78</span><br><span class="line">79</span><br><span class="line">80</span><br><span class="line">81</span><br><span class="line">82</span><br><span class="line">83</span><br><span class="line">84</span><br><span class="line">85</span><br><span class="line">86</span><br><span class="line">87</span><br><span class="line">88</span><br><span class="line">89</span><br><span class="line">90</span><br><span class="line">91</span><br><span class="line">92</span><br><span class="line">93</span><br><span class="line">94</span><br><span class="line">95</span><br><span class="line">96</span><br><span class="line">97</span><br><span class="line">98</span><br><span class="line">99</span><br><span class="line">100</span><br><span class="line">101</span><br><span class="line">102</span><br><span class="line">103</span><br><span class="line">104</span><br><span class="line">105</span><br><span class="line">106</span><br><span class="line">107</span><br><span class="line">108</span><br><span class="line">109</span><br><span class="line">110</span><br><span class="line">111</span><br><span class="line">112</span><br><span class="line">113</span><br><span class="line">114</span><br><span class="line">115</span><br><span class="line">116</span><br><span class="line">117</span><br><span class="line">118</span><br><span class="line">119</span><br><span class="line">120</span><br><span class="line">121</span><br><span class="line">122</span><br><span class="line">123</span><br><span class="line">124</span><br><span class="line">125</span><br><span class="line">126</span><br><span class="line">127</span><br><span class="line">128</span><br><span class="line">129</span><br><span class="line">130</span><br><span class="line">131</span><br><span class="line">132</span><br><span class="line">133</span><br><span class="line">134</span><br><span class="line">135</span><br><span class="line">136</span><br><span class="line">137</span><br><span class="line">138</span><br><span class="line">139</span><br><span class="line">140</span><br><span class="line">141</span><br><span class="line">142</span><br><span class="line">143</span><br><span class="line">144</span><br><span class="line">145</span><br><span class="line">146</span><br><span class="line">147</span><br><span class="line">148</span><br><span class="line">149</span><br><span class="line">150</span><br><span class="line">151</span><br><span class="line">152</span><br><span class="line">153</span><br><span class="line">154</span><br><span class="line">155</span><br><span class="line">156</span><br><span class="line">157</span><br><span class="line">158</span><br><span class="line">159</span><br><span class="line">160</span><br><span class="line">161</span><br><span class="line">162</span><br><span class="line">163</span><br><span class="line">164</span><br><span class="line">165</span><br><span class="line">166</span><br><span class="line">167</span><br><span class="line">168</span><br><span class="line">169</span><br><span class="line">170</span><br><span class="line">171</span><br><span class="line">172</span><br><span class="line">173</span><br><span class="line">174</span><br><span class="line">175</span><br><span class="line">176</span><br><span class="line">177</span><br><span class="line">178</span><br><span class="line">179</span><br><span class="line">180</span><br><span class="line">181</span><br><span class="line">182</span><br><span class="line">183</span><br><span class="line">184</span><br><span class="line">185</span><br><span class="line">186</span><br><span class="line">187</span><br><span class="line">188</span><br><span class="line">189</span><br><span class="line">190</span><br><span class="line">191</span><br><span class="line">192</span><br><span class="line">193</span><br><span class="line">194</span><br><span class="line">195</span><br><span class="line">196</span><br><span class="line">197</span><br><span class="line">198</span><br><span class="line">199</span><br><span class="line">200</span><br><span class="line">201</span><br><span class="line">202</span><br><span class="line">203</span><br><span class="line">204</span><br><span class="line">205</span><br><span class="line">206</span><br><span class="line">207</span><br><span class="line">208</span><br><span class="line">209</span><br><span class="line">210</span><br><span class="line">211</span><br><span class="line">212</span><br><span class="line">213</span><br><span class="line">214</span><br><span class="line">215</span><br><span class="line">216</span><br><span class="line">217</span><br><span class="line">218</span><br><span class="line">219</span><br><span class="line">220</span><br><span class="line">221</span><br><span class="line">222</span><br><span class="line">223</span><br><span class="line">224</span><br><span class="line">225</span><br><span class="line">226</span><br><span class="line">227</span><br><span class="line">228</span><br><span class="line">229</span><br><span class="line">230</span><br><span class="line">231</span><br><span class="line">232</span><br><span class="line">233</span><br><span class="line">234</span><br><span class="line">235</span><br><span class="line">236</span><br><span class="line">237</span><br><span class="line">238</span><br><span class="line">239</span><br><span class="line">240</span><br><span class="line">241</span><br><span class="line">242</span><br><span class="line">243</span><br><span class="line">244</span><br><span class="line">245</span><br><span class="line">246</span><br><span class="line">247</span><br><span class="line">248</span><br><span class="line">249</span><br><span class="line">250</span><br><span class="line">251</span><br><span class="line">252</span><br><span class="line">253</span><br><span class="line">254</span><br><span class="line">255</span><br><span class="line">256</span><br><span class="line">257</span><br><span class="line">258</span><br><span class="line">259</span><br><span class="line">260</span><br><span class="line">261</span><br><span class="line">262</span><br><span class="line">263</span><br><span class="line">264</span><br><span class="line">265</span><br><span class="line">266</span><br><span class="line">267</span><br><span class="line">268</span><br><span class="line">269</span><br><span class="line">270</span><br><span class="line">271</span><br><span class="line">272</span><br><span class="line">273</span><br><span class="line">274</span><br><span class="line">275</span><br><span class="line">276</span><br><span class="line">277</span><br><span class="line">278</span><br><span class="line">279</span><br><span class="line">280</span><br><span class="line">281</span><br><span class="line">282</span><br><span class="line">283</span><br><span class="line">284</span><br><span class="line">285</span><br><span class="line">286</span><br><span class="line">287</span><br><span class="line">288</span><br><span class="line">289</span><br><span class="line">290</span><br><span class="line">291</span><br><span class="line">292</span><br><span class="line">293</span><br><span class="line">294</span><br><span class="line">295</span><br><span class="line">296</span><br><span class="line">297</span><br><span class="line">298</span><br><span class="line">299</span><br><span class="line">300</span><br><span class="line">301</span><br><span class="line">302</span><br><span class="line">303</span><br><span class="line">304</span><br><span class="line">305</span><br><span class="line">306</span><br><span class="line">307</span><br><span class="line">308</span><br><span class="line">309</span><br><span class="line">310</span><br><span class="line">311</span><br><span class="line">312</span><br><span class="line">313</span><br><span class="line">314</span><br></pre></td><td class="code"><pre><code class="hljs dns">//参数存储<br>//参数同步<br>//参数校验<br>//g_param 是参数源<br>//HoldingReg 是通讯镜像<br>//g_speed_pid 是运行镜像<br><br>//<span class="hljs-number">1</span> 参数源（唯一真值）param_t g_param<span class="hljs-comment">;</span><br><br>//<span class="hljs-number">2</span> 参数映射表  param_map_t g_map[]<br>//   参数变量<br>//      ↓<br>//   寄存器地址<br>//      ↓<br>//   放缩关系<br><br>//<span class="hljs-number">3</span> 参数发布<br>//把内部参数同步到 Modbus 寄存器。<br><br>//<span class="hljs-number">4</span> 参数读取<br>//Param_UpdateFromModbus<span class="hljs-punctuation">(</span>HoldingReg<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br><br>//<span class="hljs-number">5</span> 参数校验<br>//Param_Sanitize<span class="hljs-punctuation">(</span><span class="hljs-punctuation">)</span><span class="hljs-comment">;防止非法参数。</span><br><br>//<span class="hljs-number">6</span> 参数下发到控制器<br>//Param_To_System<span class="hljs-punctuation">(</span>&amp;g_param<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br><br>//<span class="hljs-number">7</span> 上电初始化<br>//Flash读取<br>//    ↓<br>//检查标志位<br>//    ↓<br>//参数校验<br>//    ↓<br>//默认参数补充<br>//    ↓<br>//更新PID<br>//    ↓<br>//发布寄存器<br>#include <span class="hljs-string">&quot;param.h&quot;</span><br>#include &lt;stdio.h&gt;<br>#include <span class="hljs-string">&quot;pid.h&quot;</span><br>#include <span class="hljs-string">&quot;modbus.h&quot;</span><br><br><br>#define PARAM_FLAG_DEFAULT <span class="hljs-number">0</span>xA5A5<br><br>extern PID_TypeDef g_speed_pid<span class="hljs-comment">;</span><br><br>param_t g_param<span class="hljs-comment">;</span><br><br>/* =========================<br>   参数映射表（核心）<br>   ========================= */<br>static param_map_t g_map[] =<br>&#123;<br>	  //参数-寄存器地址-放缩系数<br>    &#123;&amp;g_param.set_speed,<span class="hljs-number">0</span>,<span class="hljs-number">1</span>.<span class="hljs-number">0</span>f,PARAM_S16&#125;,<br><br>    &#123;&amp;g_param.kp,<span class="hljs-number">1</span>,<span class="hljs-number">100000</span>.<span class="hljs-number">0</span>f,PARAM_FLOAT&#125;,<br>    &#123;&amp;g_param.ki,<span class="hljs-number">2</span>,<span class="hljs-number">100000</span>.<span class="hljs-number">0</span>f,PARAM_FLOAT&#125;,<br>    &#123;&amp;g_param.kd,<span class="hljs-number">3</span>,<span class="hljs-number">100000</span>.<span class="hljs-number">0</span>f,PARAM_FLOAT&#125;,<br><br>    &#123;&amp;g_param.i_max,<span class="hljs-number">4</span>,<span class="hljs-number">1</span>.<span class="hljs-number">0</span>f,PARAM_S16&#125;,<br>    &#123;&amp;g_param.i_min,<span class="hljs-number">5</span>,<span class="hljs-number">1</span>.<span class="hljs-number">0</span>f,PARAM_S16&#125;,<br><br>    &#123;&amp;g_param.out_max,<span class="hljs-number">6</span>,<span class="hljs-number">1</span>.<span class="hljs-number">0</span>f,PARAM_S16&#125;,<br>    &#123;&amp;g_param.out_min,<span class="hljs-number">7</span>,<span class="hljs-number">1</span>.<span class="hljs-number">0</span>f,PARAM_S16&#125;,<br>		//&#123;&amp;g_param.flag,<span class="hljs-number">4</span>, <span class="hljs-number">1</span>.<span class="hljs-number">0</span>f&#125;,<br>&#125;<span class="hljs-comment">;</span><br><br>//参数合理性检查<br>uint8_t Param_Sanitize<span class="hljs-punctuation">(</span>param_t *p<span class="hljs-punctuation">)</span><br>&#123;<br>    uint8_t ret = <span class="hljs-number">0</span><span class="hljs-comment">;</span><br>    if <span class="hljs-punctuation">(</span>!p<span class="hljs-punctuation">)</span> return <span class="hljs-number">0</span><span class="hljs-comment">;</span><br><br>    if <span class="hljs-punctuation">(</span>p-&gt;kp &lt; <span class="hljs-number">0</span><span class="hljs-punctuation">)</span> &#123;p-&gt;kp = <span class="hljs-number">0</span><span class="hljs-comment">; ret = 1;&#125;//这个地方超出范围后，应该使用默认值</span><br>    if <span class="hljs-punctuation">(</span>p-&gt;kp &gt; <span class="hljs-number">6</span>.<span class="hljs-number">55</span><span class="hljs-punctuation">)</span> &#123;p-&gt;kp = <span class="hljs-number">6</span>.<span class="hljs-number">55</span><span class="hljs-comment">; ret = 1;&#125;</span><br><br>    if <span class="hljs-punctuation">(</span>p-&gt;ki &lt; <span class="hljs-number">0</span><span class="hljs-punctuation">)</span> &#123;p-&gt;ki = <span class="hljs-number">0</span><span class="hljs-comment">; ret = 1;&#125;</span><br>    if <span class="hljs-punctuation">(</span>p-&gt;ki &gt; <span class="hljs-number">6</span>.<span class="hljs-number">55</span><span class="hljs-punctuation">)</span> &#123;p-&gt;ki = <span class="hljs-number">6</span>.<span class="hljs-number">55</span><span class="hljs-comment">; ret = 1;&#125;</span><br><br>    if <span class="hljs-punctuation">(</span>p-&gt;kd &lt; <span class="hljs-number">0</span><span class="hljs-punctuation">)</span> &#123;p-&gt;kd = <span class="hljs-number">0</span><span class="hljs-comment">; ret = 1;&#125;</span><br>    if <span class="hljs-punctuation">(</span>p-&gt;kd &gt; <span class="hljs-number">6</span>.<span class="hljs-number">55</span><span class="hljs-punctuation">)</span> &#123;p-&gt;kd = <span class="hljs-number">6</span>.<span class="hljs-number">55</span><span class="hljs-comment">; ret = 1;&#125;</span><br><br>    if <span class="hljs-punctuation">(</span>p-&gt;i_max &lt;= p-&gt;i_min<span class="hljs-punctuation">)</span><br>    &#123;<br>        p-&gt;i_max = p-&gt;i_min + <span class="hljs-number">1</span><span class="hljs-comment">;</span><br>        ret = <span class="hljs-number">1</span><span class="hljs-comment">;</span><br>    &#125;<br><br>    if <span class="hljs-punctuation">(</span>p-&gt;out_max &lt;= p-&gt;out_min<span class="hljs-punctuation">)</span><br>    &#123;<br>        p-&gt;out_max = p-&gt;out_min + <span class="hljs-number">1</span><span class="hljs-comment">;</span><br>        ret = <span class="hljs-number">1</span><span class="hljs-comment">;</span><br>    &#125;<br>		<br>    return ret<span class="hljs-comment">;</span><br>&#125;<br><br><br><br>#define MAP_SIZE <span class="hljs-punctuation">(</span>sizeof<span class="hljs-punctuation">(</span>g_map<span class="hljs-punctuation">)</span>/sizeof<span class="hljs-punctuation">(</span>g_map[<span class="hljs-number">0</span>]<span class="hljs-punctuation">)</span><span class="hljs-punctuation">)</span><br>//初始参数为系统使用参数<br>void Param_InitDefault<span class="hljs-punctuation">(</span><span class="hljs-punctuation">)</span><br>&#123;<br>  <br><br>    g_param.kp = KP<span class="hljs-comment">;</span><br>    g_param.ki = KI<span class="hljs-comment">;</span><br>    g_param.kd = KD<span class="hljs-comment">;</span><br><br>    g_param.set_speed = <span class="hljs-number">0</span><span class="hljs-comment">;</span><br><br>    g_param.i_max = <span class="hljs-number">8000</span><span class="hljs-comment">;</span><br>    g_param.i_min = -<span class="hljs-number">8000</span><span class="hljs-comment">;</span><br>    g_param.out_max = <span class="hljs-number">8000</span><span class="hljs-comment">;</span><br>    g_param.out_min = -<span class="hljs-number">8000</span><span class="hljs-comment">;</span><br>  	g_param.flag = PARAM_FLAG_DEFAULT<span class="hljs-comment">;</span><br>&#125;<br><br><br>//更新当前系统使用参数<br>void Param_To_System<span class="hljs-punctuation">(</span>param_t *p<span class="hljs-punctuation">)</span><br>&#123;<br>    if <span class="hljs-punctuation">(</span>!p<span class="hljs-punctuation">)</span> return<span class="hljs-comment">;</span><br><br>    g_speed_pid.Proportion = p-&gt;kp<span class="hljs-comment">;</span><br>    g_speed_pid.Integral   = p-&gt;ki<span class="hljs-comment">;</span><br>    g_speed_pid.Derivative = p-&gt;kd<span class="hljs-comment">;</span><br><br>    g_speed_pid.SetPoint = p-&gt;set_speed<span class="hljs-comment">;</span><br><br>    g_speed_pid.IngMax = p-&gt;i_max<span class="hljs-comment">;</span><br>    g_speed_pid.IngMin = p-&gt;i_min<span class="hljs-comment">;</span><br>    g_speed_pid.OutMax = p-&gt;out_max<span class="hljs-comment">;</span><br>    g_speed_pid.OutMin = p-&gt;out_min<span class="hljs-comment">;</span><br>&#125;<br><br><br><br><br>//参数存储<br>uint8_t Param_SaveToFlash<span class="hljs-punctuation">(</span>param_t *p<span class="hljs-punctuation">)</span><br>&#123;<br>    uint32_t crc<span class="hljs-comment">;</span><br><br>//    crc = CRC32<span class="hljs-punctuation">(</span><span class="hljs-punctuation">(</span>uint8_t*<span class="hljs-punctuation">)</span>p, sizeof<span class="hljs-punctuation">(</span>param_t<span class="hljs-punctuation">)</span><span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br><br>//    flash_erase<span class="hljs-punctuation">(</span>PARAM_ADDR<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>//    flash_write<span class="hljs-punctuation">(</span>PARAM_ADDR, <span class="hljs-punctuation">(</span>uint8_t*<span class="hljs-punctuation">)</span>p, sizeof<span class="hljs-punctuation">(</span>param_t<span class="hljs-punctuation">)</span><span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>//    flash_write<span class="hljs-punctuation">(</span>PARAM_ADDR + sizeof<span class="hljs-punctuation">(</span>param_t<span class="hljs-punctuation">)</span>, <span class="hljs-punctuation">(</span>uint8_t*<span class="hljs-punctuation">)</span>&amp;crc, <span class="hljs-number">4</span><span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br><br>    return <span class="hljs-number">0</span><span class="hljs-comment">;</span><br>&#125;<br>//参数读取<br>uint8_t Param_LoadFromFlash<span class="hljs-punctuation">(</span>param_t *p<span class="hljs-punctuation">)</span><br>&#123;<br>    uint32_t crc_flash, crc_calc<span class="hljs-comment">;</span><br><br>//    flash_read<span class="hljs-punctuation">(</span>PARAM_ADDR, <span class="hljs-punctuation">(</span>uint8_t*<span class="hljs-punctuation">)</span>p, sizeof<span class="hljs-punctuation">(</span>param_t<span class="hljs-punctuation">)</span><span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>//    flash_read<span class="hljs-punctuation">(</span>PARAM_ADDR + sizeof<span class="hljs-punctuation">(</span>param_t<span class="hljs-punctuation">)</span>, <span class="hljs-punctuation">(</span>uint8_t*<span class="hljs-punctuation">)</span>&amp;crc_flash, <span class="hljs-number">4</span><span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br><br>//    crc_calc = CRC32<span class="hljs-punctuation">(</span><span class="hljs-punctuation">(</span>uint8_t*<span class="hljs-punctuation">)</span>p, sizeof<span class="hljs-punctuation">(</span>param_t<span class="hljs-punctuation">)</span><span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br><br>//    if <span class="hljs-punctuation">(</span>crc_calc != crc_flash<span class="hljs-punctuation">)</span><br>//        return -<span class="hljs-number">1</span><span class="hljs-comment">;</span><br><br>    return <span class="hljs-number">0</span><span class="hljs-comment">;</span><br>&#125;<br><br>void Param_FromModbus<span class="hljs-punctuation">(</span>uint16_t *reg<span class="hljs-punctuation">)</span><br>&#123;<br>    int i<span class="hljs-comment">;</span><br><br>    for<span class="hljs-punctuation">(</span>i = <span class="hljs-number">0</span><span class="hljs-comment">; i &lt; MAP_SIZE; i++)</span><br>    &#123;<br>        switch<span class="hljs-punctuation">(</span>g_map[i].type<span class="hljs-punctuation">)</span>//数据类型映射<br>        &#123;<br>            case PARAM_FLOAT:<br>            &#123;<br>                float *p = <span class="hljs-punctuation">(</span>float*<span class="hljs-punctuation">)</span>g_map[i].addr<span class="hljs-comment">;</span><br><br>                *p =<br>                    <span class="hljs-punctuation">(</span>float<span class="hljs-punctuation">)</span>reg[g_map[i].reg]<br>                    / g_map[i].scale<span class="hljs-comment">;</span><br>            &#125;<br>            break<span class="hljs-comment">;</span><br><br>            case PARAM_S16:<br>            &#123;<br>                float *p = <span class="hljs-punctuation">(</span>float*<span class="hljs-punctuation">)</span>g_map[i].addr<span class="hljs-comment">;</span><br><br>                *p =<br>                    <span class="hljs-punctuation">(</span>float<span class="hljs-punctuation">)</span><span class="hljs-punctuation">(</span><span class="hljs-punctuation">(</span>int16_t<span class="hljs-punctuation">)</span><br>                    reg[g_map[i].reg]<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>            &#125;<br>            break<span class="hljs-comment">;</span><br><br>            case PARAM_U16:<br>            &#123;<br>                float *p = <span class="hljs-punctuation">(</span>float*<span class="hljs-punctuation">)</span>g_map[i].addr<span class="hljs-comment">;</span><br><br>                *p =<br>                    <span class="hljs-punctuation">(</span>float<span class="hljs-punctuation">)</span>reg[g_map[i].reg]<span class="hljs-comment">;</span><br>            &#125;<br>            break<span class="hljs-comment">;</span><br>        &#125;<br>    &#125;<br>&#125;<br><br>void Param_ToModbus<span class="hljs-punctuation">(</span>uint16_t *reg<span class="hljs-punctuation">)</span><br>&#123;<br>    int i<span class="hljs-comment">;</span><br><br>    for<span class="hljs-punctuation">(</span>i = <span class="hljs-number">0</span><span class="hljs-comment">; i &lt; MAP_SIZE; i++)</span><br>    &#123;<br>        switch<span class="hljs-punctuation">(</span>g_map[i].type<span class="hljs-punctuation">)</span>//数据类型映射<br>        &#123;<br>            case PARAM_FLOAT:<br>            &#123;<br>                float *p = <span class="hljs-punctuation">(</span>float*<span class="hljs-punctuation">)</span>g_map[i].addr<span class="hljs-comment">;</span><br><br>                reg[g_map[i].reg] =<br>                    <span class="hljs-punctuation">(</span>uint16_t<span class="hljs-punctuation">)</span><br>                    <span class="hljs-punctuation">(</span>*p * g_map[i].scale<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>            &#125;<br>            break<span class="hljs-comment">;</span><br><br>            case PARAM_S16:<br>            &#123;<br>                float *p = <span class="hljs-punctuation">(</span>float*<span class="hljs-punctuation">)</span>g_map[i].addr<span class="hljs-comment">;</span><br><br>                reg[g_map[i].reg] =<br>                    <span class="hljs-punctuation">(</span>uint16_t<span class="hljs-punctuation">)</span><br>                    <span class="hljs-punctuation">(</span><span class="hljs-punctuation">(</span>int16_t<span class="hljs-punctuation">)</span><span class="hljs-punctuation">(</span>*p<span class="hljs-punctuation">)</span><span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>            &#125;<br>            break<span class="hljs-comment">;</span><br><br>            case PARAM_U16:<br>            &#123;<br>                float *p = <span class="hljs-punctuation">(</span>float*<span class="hljs-punctuation">)</span>g_map[i].addr<span class="hljs-comment">;</span><br><br>                reg[g_map[i].reg] =<br>                    <span class="hljs-punctuation">(</span>uint16_t<span class="hljs-punctuation">)</span><span class="hljs-punctuation">(</span>*p<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>            &#125;<br>            break<span class="hljs-comment">;</span><br>        &#125;<br>    &#125;<br>&#125;<br><br>//更新modbus数据到参数源中<br>uint8_t Param_UpdateFromModbus<span class="hljs-punctuation">(</span>uint16_t *HoldingReg<span class="hljs-punctuation">)</span><br>&#123;<br>    if <span class="hljs-punctuation">(</span>!HoldingReg<span class="hljs-punctuation">)</span><br>        return <span class="hljs-number">0</span><span class="hljs-comment">;</span><br><br>    Param_FromModbus<span class="hljs-punctuation">(</span>HoldingReg<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br><br>    if<span class="hljs-punctuation">(</span>Param_Sanitize<span class="hljs-punctuation">(</span>&amp;g_param<span class="hljs-punctuation">)</span><span class="hljs-punctuation">)</span><br>    &#123;<br>        Param_Publish<span class="hljs-punctuation">(</span>HoldingReg<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>    &#125;<br><br>    return <span class="hljs-number">1</span><span class="hljs-comment">;</span><br>&#125;<br>//更新参数源中数据到modbus数据<br>void Param_Publish<span class="hljs-punctuation">(</span>uint16_t *HoldingReg<span class="hljs-punctuation">)</span><br>&#123;<br>    Param_ToModbus<span class="hljs-punctuation">(</span>HoldingReg<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>&#125;<br><br>uint8_t Param_Init_<span class="hljs-punctuation">(</span>void<span class="hljs-punctuation">)</span>//上电参数初始化函数<br>&#123;<br>    uint8_t ret = <span class="hljs-number">0</span><span class="hljs-comment">;</span><br><br>    if<span class="hljs-punctuation">(</span>Param_LoadFromFlash<span class="hljs-punctuation">(</span>&amp;g_param<span class="hljs-punctuation">)</span> != <span class="hljs-number">0</span><span class="hljs-punctuation">)</span><br>    &#123;//如果参数读取失败<br>        Param_InitDefault<span class="hljs-punctuation">(</span><span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>        ret = <span class="hljs-number">1</span><span class="hljs-comment">;</span><br>    &#125;<br>    else<br>    &#123;//如果参数读取成功<br>        if<span class="hljs-punctuation">(</span>g_param.flag != PARAM_FLAG_DEFAULT<span class="hljs-punctuation">)</span><br>        &#123;//标志位检查错误<br>            Param_InitDefault<span class="hljs-punctuation">(</span><span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>            ret = <span class="hljs-number">1</span><span class="hljs-comment">;</span><br>        &#125;<br>        else<br>        &#123;//进行合理化判断<br>            ret = Param_Sanitize<span class="hljs-punctuation">(</span>&amp;g_param<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br>        &#125;<br>    &#125;<br><br>    Param_To_System<span class="hljs-punctuation">(</span>&amp;g_param<span class="hljs-punctuation">)</span><span class="hljs-comment">;//将g_param参数更新到系统</span><br><br>    Param_Publish<span class="hljs-punctuation">(</span>HoldingReg<span class="hljs-punctuation">)</span><span class="hljs-comment">;//参数发布</span><br><br>    return ret<span class="hljs-comment">;</span><br>&#125;<br><br>void Param_Apply<span class="hljs-punctuation">(</span>void<span class="hljs-punctuation">)</span>//数据同步<br>&#123;<br>		Param_UpdateFromModbus<span class="hljs-punctuation">(</span>HoldingReg<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br><br>		Param_To_System<span class="hljs-punctuation">(</span>&amp;g_param<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br><br>		Param_Publish<span class="hljs-punctuation">(</span>HoldingReg<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br><br>		//Param_SaveToFlash<span class="hljs-punctuation">(</span>&amp;g_param<span class="hljs-punctuation">)</span><span class="hljs-comment">;</span><br><br>&#125;<br></code></pre></td></tr></table></figure>
+                
+              </div>
+            
+            <hr/>
+            <div>
+              <div class="post-metas my-3">
+  
+    <div class="post-meta mr-3 d-flex align-items-center">
+      <i class="iconfont icon-category"></i>
+      
+
+<span class="category-chains">
+  
+  
+    
+      <span class="category-chain">
+        
+  <a href="/categories/%E6%8A%80%E6%9C%AF%E7%AC%94%E8%AE%B0/" class="category-chain-item">技术笔记</a>
+  
+  
+
+      </span>
+    
+  
+</span>
+
+    </div>
+  
+  
+    <div class="post-meta">
+      <i class="iconfont icon-tags"></i>
+      
+        <a href="/tags/%E5%B5%8C%E5%85%A5%E5%BC%8F/" class="print-no-link">#嵌入式</a>
+      
+        <a href="/tags/%E5%8F%82%E6%95%B0%E7%AE%A1%E7%90%86/" class="print-no-link">#参数管理</a>
+      
+        <a href="/tags/Modbus/" class="print-no-link">#Modbus</a>
+      
+    </div>
+  
+</div>
+
+
+              
+  
+
+  <div class="license-box my-3">
+    <div class="license-title">
+      <div>参数管理架构：参数源、Modbus 镜像与运行镜像</div>
+      <div>https://babuqu.github.io/2026/10/13/参数管理架构与数据同步/</div>
+    </div>
+    <div class="license-meta">
+      
+        <div class="license-meta-item">
+          <div>作者</div>
+          <div>babuqu</div>
+        </div>
+      
+      
+        <div class="license-meta-item license-meta-date">
+          <div>发布于</div>
+          <div>2026年10月13日</div>
+        </div>
+      
+      
+      
+        <div class="license-meta-item">
+          <div>许可协议</div>
+          <div>
+            
+              
+              
+                <a class="print-no-link" target="_blank" href="https://creativecommons.org/licenses/by/4.0/">
+                  <span class="hint--top hint--rounded" aria-label="BY - 署名">
+                    <i class="iconfont icon-cc-by"></i>
+                  </span>
+                </a>
+              
+            
+          </div>
+        </div>
+      
+    </div>
+    <div class="license-icon iconfont"></div>
+  </div>
+
+
+
+              
+                <div class="post-prevnext my-3">
+                  <article class="post-prev col-6">
+                    
+                    
+                      <a href="/2026/10/17/MOC%E6%8E%92%E6%95%85/MOC%E6%8E%92%E6%95%85/" title="MOC排故">
+                        <i class="iconfont icon-arrowleft"></i>
+                        <span class="hidden-mobile">MOC排故</span>
+                        <span class="visible-mobile">上一篇</span>
+                      </a>
+                    
+                  </article>
+                  <article class="post-next col-6">
+                    
+                    
+                      <a href="/2026/10/13/BLDC%E6%97%A0%E4%BC%A0%E6%84%9F%E5%99%A8%E8%BD%AC%E9%80%9F%E6%8E%A7%E5%88%B6/BLDC%E6%97%A0%E4%BC%A0%E6%84%9F%E5%99%A8%E8%BD%AC%E9%80%9F%E6%8E%A7%E5%88%B6/" title="BLDC无传感器转速控制">
+                        <span class="hidden-mobile">BLDC无传感器转速控制</span>
+                        <span class="visible-mobile">下一篇</span>
+                        <i class="iconfont icon-arrowright"></i>
+                      </a>
+                    
+                  </article>
+                </div>
+              
+            </div>
+
+            
+          </article>
+        </div>
+      </div>
+    </div>
+
+    <div class="side-col d-none d-lg-block col-lg-2">
+      
+  <aside class="sidebar" style="margin-left: -1rem">
+    <div id="toc">
+  <p class="toc-header">
+    <i class="iconfont icon-list"></i>
+    <span>目录</span>
+  </p>
+  <div class="toc-body" id="toc-body"></div>
+</div>
+
+
+
+  </aside>
+
+
+    </div>
+  </div>
+</div>
+
+
+
+
+
+  
+
+
+
+  
+
+
+
+  
+
+
+
+  
+
+
+
+  
+
+
+  
+  
+
+
+
+
+
+
+
+
+
+    
+
+    
+      <a id="scroll-top-button" aria-label="TOP" href="#" role="button">
+        <i class="iconfont icon-arrowup" aria-hidden="true"></i>
+      </a>
+    
+
+    
+      <div class="modal fade" id="modalSearch" tabindex="-1" role="dialog" aria-labelledby="ModalLabel"
+     aria-hidden="true">
+  <div class="modal-dialog modal-dialog-scrollable modal-lg" role="document">
+    <div class="modal-content">
+      <div class="modal-header text-center">
+        <h4 class="modal-title w-100 font-weight-bold">搜索</h4>
+        <button type="button" id="local-search-close" class="close" data-dismiss="modal" aria-label="Close">
+          <span aria-hidden="true">&times;</span>
+        </button>
+      </div>
+      <div class="modal-body mx-3">
+        <div class="md-form mb-5">
+          <input type="text" id="local-search-input" class="form-control validate">
+          <label data-error="x" data-success="v" for="local-search-input">关键词</label>
+        </div>
+        <div class="list-group" id="local-search-result"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+    
+
+    
+  </main>
+
+  <footer>
+    <div class="footer-inner">
+  
+    <div class="footer-content">
+       <a href="https://hexo.io" target="_blank" rel="nofollow noopener"><span>Hexo</span></a> <i class="iconfont icon-love"></i> <a href="https://github.com/fluid-dev/hexo-theme-fluid" target="_blank" rel="nofollow noopener"><span>Fluid</span></a> 
+    </div>
+  
+  
+  
+</div>
+
+  </footer>
+
+  <!-- Scripts -->
+  
+  <script  src="https://lib.baomitu.com/nprogress/0.2.0/nprogress.min.js" ></script>
+  <link  rel="stylesheet" href="https://lib.baomitu.com/nprogress/0.2.0/nprogress.min.css" />
+
+  <script>
+    NProgress.configure({"showSpinner":false,"trickleSpeed":100})
+    NProgress.start()
+    window.addEventListener('load', function() {
+      NProgress.done();
+    })
+  </script>
+
+
+<script  src="https://lib.baomitu.com/jquery/3.6.4/jquery.min.js" ></script>
+<script  src="https://lib.baomitu.com/twitter-bootstrap/4.6.1/js/bootstrap.min.js" ></script>
+<script  src="/js/events.js" ></script>
+<script  src="/js/plugins.js" ></script>
+
+
+  <script  src="https://lib.baomitu.com/typed.js/2.0.12/typed.min.js" ></script>
+  <script>
+    (function (window, document) {
+      var typing = Fluid.plugins.typing;
+      var subtitle = document.getElementById('subtitle');
+      if (!subtitle || !typing) {
+        return;
+      }
+      var text = subtitle.getAttribute('data-typed-text');
+      
+        typing(text);
+      
+    })(window, document);
+  </script>
+
+
+
+
+  
+    <script  src="/js/img-lazyload.js" ></script>
+  
+
+
+
+
+  
+<script>
+  Fluid.utils.createScript('https://lib.baomitu.com/tocbot/4.20.1/tocbot.min.js', function() {
+    var toc = jQuery('#toc');
+    if (toc.length === 0 || !window.tocbot) { return; }
+    var boardCtn = jQuery('#board-ctn');
+    var boardTop = boardCtn.offset().top;
+
+    function isExpandAllEnabled() {
+      return CONFIG.toc && CONFIG.toc.expand_all === true;
+    }
+    function expandAllToc() {
+      if (!isExpandAllEnabled()) { return; }
+      jQuery('#toc-body .tocbot-is-collapsed').removeClass('tocbot-is-collapsed');
+    }
+    function updateTocToggle($li, $childList) {
+      var $toggle = $li.children('.toc-toggle');
+      if ($toggle.length === 0) { return; }
+      var collapsed = $childList.hasClass('tocbot-is-collapsed');
+      $toggle
+        .toggleClass('toc-toggle-collapsed', collapsed)
+        .toggleClass('toc-toggle-expanded', !collapsed);
+    }
+    function bindTocToggle() {
+      if (!isExpandAllEnabled()) { return; }
+      jQuery('#toc-body .toc-list-item').each(function() {
+        var $li = jQuery(this);
+        var $childList = $li.children('ol');
+        if ($childList.length === 0) {
+          if ($li.children('.toc-toggle').length === 0) {
+            $li.prepend('<span class="toc-toggle toc-toggle-placeholder" aria-hidden="true">›</span>');
+          }
+          return;
+        }
+
+        if ($li.children('.toc-toggle').length === 0) {
+          $li.prepend('<span class="toc-toggle toc-toggle-expanded" aria-hidden="true">›</span>');
+        }
+        updateTocToggle($li, $childList);
+      });
+      jQuery('#toc-body').off('click.tocToggle').on('click.tocToggle', '.toc-toggle', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        var $li = jQuery(this).parent('.toc-list-item');
+        var $childList = $li.children('ol');
+        if ($childList.length === 0) { return; }
+        $childList.toggleClass('tocbot-is-collapsed');
+        updateTocToggle($li, $childList);
+      });
+      if (!window.__tocToggleObserver) {
+        window.__tocToggleObserver = new MutationObserver(function(mutations) {
+          mutations.forEach(function(mutation) {
+            if (mutation.type !== 'attributes' || mutation.attributeName !== 'class') { return; }
+            var $list = jQuery(mutation.target);
+            var $li = $list.parent('.toc-list-item');
+            if ($li.length === 0) { return; }
+            updateTocToggle($li, $list);
+          });
+        });
+        jQuery('#toc-body ol').each(function() {
+          window.__tocToggleObserver.observe(this, { attributes: true });
+        });
+      }
+    }
+    var tocConfig = Object.assign({
+      tocSelector     : '#toc-body',
+      contentSelector : '.markdown-body',
+      linkClass       : 'tocbot-link',
+      activeLinkClass : 'tocbot-active-link',
+      listClass       : 'tocbot-list',
+      isCollapsedClass: 'tocbot-is-collapsed',
+      collapsibleClass: 'tocbot-is-collapsible',
+      scrollSmooth    : true,
+      includeTitleTags: true,
+      headingsOffset  : -boardTop,
+    }, CONFIG.toc);
+    if (isExpandAllEnabled()) {
+      tocConfig.collapseDepth = 6;
+    }
+    window.tocbot.init(tocConfig);
+    if (toc.find('.toc-list-item').length > 0) {
+      toc.css('visibility', 'visible');
+    }
+    expandAllToc();
+    bindTocToggle();
+
+    Fluid.events.registerRefreshCallback(function() {
+      if ('tocbot' in window) {
+        tocbot.refresh();
+        var toc = jQuery('#toc');
+        if (toc.length === 0 || !tocbot) {
+          return;
+        }
+        if (toc.find('.toc-list-item').length > 0) {
+          toc.css('visibility', 'visible');
+        }
+        expandAllToc();
+        bindTocToggle();
+      }
+    });
+  });
+</script>
+
+
+  <script src=https://lib.baomitu.com/clipboard.js/2.0.11/clipboard.min.js></script>
+
+  <script>Fluid.plugins.codeWidget();</script>
+
+
+  
+<script>
+  Fluid.utils.createScript('https://lib.baomitu.com/anchor-js/5.0.0/anchor.min.js', function() {
+    window.anchors.options = {
+      placement: CONFIG.anchorjs.placement,
+      visible  : CONFIG.anchorjs.visible
+    };
+    if (CONFIG.anchorjs.icon) {
+      window.anchors.options.icon = CONFIG.anchorjs.icon;
+    }
+    var el = (CONFIG.anchorjs.element || 'h1,h2,h3,h4,h5,h6').split(',');
+    var res = [];
+    for (var item of el) {
+      res.push('.markdown-body > ' + item.trim());
+    }
+    if (CONFIG.anchorjs.placement === 'left') {
+      window.anchors.options.class = 'anchorjs-link-left';
+    }
+    window.anchors.add(res.join(', '));
+
+    Fluid.events.registerRefreshCallback(function() {
+      if ('anchors' in window) {
+        anchors.removeAll();
+        var el = (CONFIG.anchorjs.element || 'h1,h2,h3,h4,h5,h6').split(',');
+        var res = [];
+        for (var item of el) {
+          res.push('.markdown-body > ' + item.trim());
+        }
+        if (CONFIG.anchorjs.placement === 'left') {
+          anchors.options.class = 'anchorjs-link-left';
+        }
+        anchors.add(res.join(', '));
+      }
+    });
+  });
+</script>
+
+
+  
+<script>
+  Fluid.utils.createScript('https://lib.baomitu.com/fancybox/3.5.7/jquery.fancybox.min.js', function() {
+    Fluid.plugins.fancyBox();
+  });
+</script>
+
+
+  <script>Fluid.plugins.imageCaption();</script>
+
+  
+      <script>
+        if (!window.MathJax) {
+          window.MathJax = {
+            tex    : {
+              inlineMath: { '[+]': [['$', '$']] }
+            },
+            loader : {
+              load: ['ui/lazy']
+            },
+            options: {
+              renderActions: {
+                insertedScript: [200, () => {
+                  document.querySelectorAll('mjx-container').forEach(node => {
+                    let target = node.parentNode;
+                    if (target.nodeName.toLowerCase() === 'li') {
+                      target.parentNode.classList.add('has-jax');
+                    }
+                  });
+                }, '', false]
+              }
+            }
+          };
+        } else {
+          MathJax.startup.document.state(0);
+          MathJax.texReset();
+          MathJax.typeset();
+          MathJax.typesetPromise();
+        }
+
+        Fluid.events.registerRefreshCallback(function() {
+          if ('MathJax' in window && MathJax.startup.document && typeof MathJax.startup.document.state === 'function') {
+            MathJax.startup.document.state(0);
+            MathJax.texReset();
+            MathJax.typeset();
+            MathJax.typesetPromise();
+          }
+        });
+      </script>
+    
+
+  <script  src="https://lib.baomitu.com/mathjax/3.2.2/es5/tex-mml-chtml.js" ></script>
+
+  <script  src="/js/local-search.js" ></script>
+
+
+
+
+
+<!-- 主题的启动项，将它保持在最底部 -->
+<!-- the boot of the theme, keep it at the bottom -->
+<script  src="/js/boot.js" ></script>
+
+
+  
+
+  <noscript>
+    <div class="noscript-warning">博客在允许 JavaScript 运行的环境下浏览效果更佳</div>
+  </noscript>
+</body>
+</html>

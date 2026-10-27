@@ -27,7 +27,7 @@
 <meta property="og:description" content="本文记录一套 28 V、300 W 压缩机电机无位置传感器控制方案的建模与算法推导。硬件同时预留三相电压采样和相电流采样，目的是先识别电机反电动势波形，再选择六步过零换相或正弦电流 FOC。两条算法路径的模型和角度定义不同，不能把六步换相的 30° 延迟直接当作 FOC 的角度估算。">
 <meta property="og:locale" content="zh_CN">
 <meta property="article:published_time" content="2026-10-13T12:44:19.000Z">
-<meta property="article:modified_time" content="2026-10-13T13:48:26.574Z">
+<meta property="article:modified_time" content="2026-10-13T14:09:47.295Z">
 <meta property="article:author" content="John Doe">
 <meta property="article:tag" content="BLDC压缩机的无感转速控制">
 <meta property="article:tag" content="嵌入式">
@@ -327,7 +327,7 @@
       <span class="post-meta mr-2">
         <i class="iconfont icon-chart"></i>
         
-          5.7k 字
+          5.5k 字
         
       </span>
     
@@ -338,7 +338,7 @@
         
         
         
-          48 分钟
+          46 分钟
         
       </span>
     
@@ -405,6 +405,18 @@
         
       </li>
     
+      <li>
+        
+          <a href="/2026/10/13/%E5%8F%82%E6%95%B0%E7%AE%A1%E7%90%86/%E5%8F%82%E6%95%B0%E7%AE%A1%E7%90%86%E6%A8%A1%E5%9D%97%E6%A6%82%E8%BF%B0/">参数管理模块概述</a>
+        
+      </li>
+    
+      <li>
+        
+          <a href="/2026/10/13/%E5%8F%82%E6%95%B0%E7%AE%A1%E7%90%86/%E5%8F%82%E6%95%B0%E7%AE%A1%E7%90%86%E6%A8%A1%E5%9D%97%E4%BD%BF%E7%94%A8%E8%AF%B4%E6%98%8E/">参数管理模块使用说明</a>
+        
+      </li>
+    
   </ol>
 </section>
 
@@ -415,36 +427,82 @@
 <h2 id="一、背景与设计指标"><a href="#一、背景与设计指标" class="headerlink" title="一、背景与设计指标"></a>一、背景与设计指标</h2><p>项目目标是实现 28 V、300 W BLDC 压缩机的无传感器转速控制。额定功率和母线电压只能用于初步估算电流：若 300 W 指电输入功率，母线平均电流约为 $300&#x2F;28\approx10.7,\mathrm A$；若指轴端输出功率，则电流还要除以效率。实际选型必须按最大输入电流、启动&#x2F;堵转电流、母线纹波和器件温升核算，不能把 10.7 A 当作峰值额定值。</p>
 <p>压缩机可能存在较大静摩擦、气体压差和负载突变。无感算法在零速时没有可用的反电动势，因此“最低运行转速为 2000 rpm”并不意味着可以从静止直接闭环启动：仍需先对齐转子并开环加速，达到观测器可靠工作的速度后再切换闭环。</p>
 <h2 id="二、电机模型与控制路线"><a href="#二、电机模型与控制路线" class="headerlink" title="二、电机模型与控制路线"></a>二、电机模型与控制路线</h2><h3 id="2-1-三相电压方程"><a href="#2-1-三相电压方程" class="headerlink" title="2.1 三相电压方程"></a>2.1 三相电压方程</h3><p>以星形连接、三相对称且无中性线引出的永磁同步电机为对象。每相端电压相对电机中性点满足：</p>
-<p>$$<br>\begin{aligned}<br>u_a &amp;&#x3D; R_s i_a + L_s\frac{di_a}{dt}+e_a+u_n,\<br>u_b &amp;&#x3D; R_s i_b + L_s\frac{di_b}{dt}+e_b+u_n,\<br>u_c &amp;&#x3D; R_s i_c + L_s\frac{di_c}{dt}+e_c+u_n,<br>\end{aligned}<br>$$</p>
+<div class="math-display">\[
+\begin{aligned}
+u_a &= R_s i_a + L_s\frac{di_a}{dt}+e_a+u_n,\\
+u_b &= R_s i_b + L_s\frac{di_b}{dt}+e_b+u_n,\\
+u_c &= R_s i_c + L_s\frac{di_c}{dt}+e_c+u_n,
+\end{aligned}
+\]</div>
 <p>其中 $R_s$、$L_s$ 为相电阻和相电感，$e_{a,b,c}$ 为反电动势，$u_n$ 为中性点相对直流负母线的电位。若 $u_a,u_b,u_c$ 表示已经去除了 $u_n$ 的相对中性点电压，则上式中不再加 $u_n$。对三线制电机有 $i_a+i_b+i_c&#x3D;0$。忽略零序量并假设三相参数相同，可写成：</p>
-<p>$$<br>\mathbf{u}<em>{abc}&#x3D;R_s\mathbf{i}</em>{abc}+L_s\frac{d\mathbf{i}<em>{abc}}{dt}+\mathbf{e}</em>{abc}.<br>$$</p>
+<div class="math-display">\[
+\mathbf{u}_{abc}=R_s\mathbf{i}_{abc}+L_s\frac{d\mathbf{i}_{abc}}{dt}+\mathbf{e}_{abc}.
+\]</div>
 <p>该简化模型适用于表贴式、非凸极电机的基础反电动势观测。显著凸极、磁饱和、PWM 死区、器件压降、参数随温度变化等因素会带来模型误差，实际观测器需要补偿或滤波。</p>
 <p>电磁功率与转矩满足：</p>
-<p>$$<br>p_e&#x3D;e_ai_a+e_bi_b+e_ci_c,\qquad T_e&#x3D;\frac{p_e}{\omega_m},<br>$$</p>
+<div class="math-display">\[
+p_e=e_ai_a+e_bi_b+e_ci_c,\qquad T_e=\frac{p_e}{\omega_m},
+\]</div>
 <p>其中 $\omega_m$ 是机械角速度。若反电动势常数 $K_e$ 以线反电势 RMS&#x2F;转速、相峰值&#x2F;电角速度等不同单位给出，必须先统一定义；最稳妥的实现方式是使用已标定的相反电势峰值关系 $E_{ph,pk}&#x3D;K_e\omega_m$。</p>
 <h3 id="2-2-梯形反电势与六步换相"><a href="#2-2-梯形反电势与六步换相" class="headerlink" title="2.2 梯形反电势与六步换相"></a>2.2 梯形反电势与六步换相</h3><p>若示波器观察到相反电动势近似梯形、每 60 电角度换一次导通状态，通常选择六步控制。每个扇区两相导通、一相悬空；只在悬空相上检测反电动势过零。此路线不需要运行完整的电流观测器和 PLL。</p>
 <p>六个有效开关状态按电机相序循环，例如 $A^+B^-$、$A^+C^-$、$B^+C^-$、$B^+A^-$、$C^+A^-$、$C^+B^-$。具体次序及过零上升&#x2F;下降极性取决于相线、霍尔定义和功率级极性，必须通过低压限流实测确认，不能仅凭通用表格假定。</p>
 <p>若三相端电压相对母线负端的采样值为 $v_a,v_b,v_c$，在理想三相平衡、两相导通且忽略零序时，虚拟中性点电压为：</p>
-<p>$$<br>v_{n,virtual}&#x3D;\frac{v_a+v_b+v_c}{3}.<br>$$</p>
+<div class="math-display">\[
+v_{n,virtual}=\frac{v_a+v_b+v_c}{3}.
+\]</div>
 <p>悬空相反电动势过零判据为：</p>
-<p>$$<br>v_{floating}-v_{n,virtual}&#x3D;0.<br>$$</p>
+<div class="math-display">\[
+v_{floating}-v_{n,virtual}=0.
+\]</div>
 <p>若硬件用三个高阻缓冲器将端电压求平均，比较器可直接比较悬空相与虚拟中性点。分压网络、运放输入偏置、PWM 共模跳变和二极管续流会使实际波形偏离理想关系；采样&#x2F;比较应避开开关沿，并设消隐时间、迟滞或数字滤波。用 ADC 软件重构时也要扣除母线电压、分压比和偏置。</p>
 <p>理想梯形反电动势的过零点位于该扇区中点，即距下一次换相 30 电角度。检测过零后延迟 30° 再换相。若相邻有效过零间隔为 $\Delta t_{ZC}$，它对应 60° 电角度，则：</p>
-<p>$$<br>t_{30}&#x3D;\frac{\Delta t_{ZC}}{2},\qquad<br>\omega_e&#x3D;\frac{\pi&#x2F;3}{\Delta t_{ZC}},\qquad<br>n_m&#x3D;\frac{60}{p,T_e},<br>$$</p>
+<div class="math-display">\[
+t_{30}=\frac{\Delta t_{ZC}}{2},\qquad
+\omega_e=\frac{\pi/3}{\Delta t_{ZC}},\qquad
+n_m=\frac{60}{p\,T_e},
+\]</div>
 <p>这里 $p$ 是极对数，$T_e$ 是电角周期，$n_m$ 单位为 rpm。连续两次同极性的过零通常相隔 360° 电角度；相邻扇区过零（含上升、下降交替）才相隔 60°。实际控制要按有效事件和相序管理，不能把任意两次过零都代入同一个公式。若过零到换相还包含数字滤波、计算和驱动延迟 $t_d$，命令延迟应补偿为 $t_{cmd}&#x3D;t_{30}-t_d$（并限制为非负）。高转速时可用定时器捕获时间戳，而非固定毫秒延迟。</p>
 <h3 id="2-3-正弦反电动势与电流观测器"><a href="#2-3-正弦反电动势与电流观测器" class="headerlink" title="2.3 正弦反电动势与电流观测器"></a>2.3 正弦反电动势与电流观测器</h3><p>若反电动势近似正弦，且目标是正弦电流控制&#x2F;FOC，可在静止 $\alpha\beta$ 坐标系估算反电动势，再由 PLL 跟踪电角度。先用 Clarke 变换把三相量变为两相量（电流和电压均使用同一幅值不变定义）：</p>
-<p>$$<br>\begin{bmatrix}x_\alpha\x_\beta\end{bmatrix}<br>&#x3D;\frac{2}{3}<br>\begin{bmatrix}1&amp;-\frac12&amp;-\frac12\0&amp;\frac{\sqrt3}{2}&amp;-\frac{\sqrt3}{2}\end{bmatrix}<br>\begin{bmatrix}x_a\x_b\x_c\end{bmatrix},\quad x\in{u,i}.<br>$$</p>
+<div class="math-display">\[
+\begin{bmatrix}x_\alpha\\x_\beta\end{bmatrix}
+=\frac{2}{3}
+\begin{bmatrix}1&-\frac12&-\frac12\\0&\frac{\sqrt3}{2}&-\frac{\sqrt3}{2}\end{bmatrix}
+\begin{bmatrix}x_a\\x_b\\x_c\end{bmatrix},\quad x\in\{u,i\}.
+\]</div>
 <p>由三相模型得到：</p>
-<p>$$<br>\begin{aligned}<br>e_\alpha&amp;&#x3D;u_\alpha-R_si_\alpha-L_s\frac{di_\alpha}{dt},\<br>e_\beta&amp;&#x3D;u_\beta-R_si_\beta-L_s\frac{di_\beta}{dt}.<br>\end{aligned}<br>$$</p>
+<div class="math-display">\[
+\begin{aligned}
+e_\alpha&=u_\alpha-R_si_\alpha-L_s\frac{di_\alpha}{dt},\\
+e_\beta&=u_\beta-R_si_\beta-L_s\frac{di_\beta}{dt}.
+\end{aligned}
+\]</div>
 <p>这是反电动势观测的基本推导：测量&#x2F;重构相电压和相电流，减去电阻压降及电感压降，剩余项即反电动势。直接差分电流会放大 ADC 噪声，因此工程实现通常用离散电流观测器或低通滤波器。一个简单前向欧拉形式为：</p>
-<p>$$<br>\begin{aligned}<br>\hat e_\alpha[k] &amp;&#x3D; u_\alpha[k]-R_s i_\alpha[k]<br>-L_s\frac{i_\alpha[k]-i_\alpha[k-1]}{T_s},\<br>\hat e_\beta[k] &amp;&#x3D; u_\beta[k]-R_s i_\beta[k]<br>-L_s\frac{i_\beta[k]-i_\beta[k-1]}{T_s}.<br>\end{aligned}<br>$$</p>
+<div class="math-display">\[
+\begin{aligned}
+\hat e_\alpha[k] &= u_\alpha[k]-R_s i_\alpha[k]
+-L_s\frac{i_\alpha[k]-i_\alpha[k-1]}{T_s},\\
+\hat e_\beta[k] &= u_\beta[k]-R_s i_\beta[k]
+-L_s\frac{i_\beta[k]-i_\beta[k-1]}{T_s}.
+\end{aligned}
+\]</div>
 <p>该式依赖电机参数和实际施加电压。若 $u_{\alpha\beta}$ 直接使用 PWM 占空比乘母线电压估算，需要考虑死区、管压降、母线采样和调制限幅；若使用指令电压而忽略逆变器误差，低速时误差可能与反电动势同量级。可以将电流模型改写为电流预测器并用电流误差校正反电动势估计，但校正增益需依据采样周期和电机参数设计，不能任意增大。</p>
 <p>估算到 $\hat e_\alpha,\hat e_\beta$ 后，理想反电动势与转子电角度关系为：</p>
-<p>$$<br>\hat e_\alpha&#x3D;-E\sin\theta_e,\qquad<br>\hat e_\beta&#x3D;E\cos\theta_e,<br>$$</p>
+<div class="math-display">\[
+\hat e_\alpha=-E\sin\theta_e,\qquad
+\hat e_\beta=E\cos\theta_e,
+\]</div>
 <p>因此理想角度可由 $\operatorname{atan2}(-\hat e_\alpha,\hat e_\beta)$ 求得，但直接反正切会受噪声影响且存在角度跳变。常用 PLL 用估算角度 $\hat\theta_e$ 做 Park 投影，令反电动势的 q 轴误差趋近零：</p>
-<p>$$<br>\begin{aligned}<br>\epsilon&amp;&#x3D;\hat e_\alpha\cos\hat\theta_e+\hat e_\beta\sin\hat\theta_e,\<br>\hat\omega_e&amp;&#x3D;K_p\epsilon+K_i\int\epsilon,dt,\<br>\frac{d\hat\theta_e}{dt}&amp;&#x3D;\hat\omega_e.<br>\end{aligned}<br>$$</p>
+<div class="math-display">\[
+\begin{aligned}
+\epsilon&=\hat e_\alpha\cos\hat\theta_e+\hat e_\beta\sin\hat\theta_e,\\
+\hat\omega_e&=K_p\epsilon+K_i\int\epsilon\,dt,\\
+\frac{d\hat\theta_e}{dt}&=\hat\omega_e.
+\end{aligned}
+\]</div>
 <p>当估算角度正确时，上式的 $\epsilon$ 为零附近的小信号相位误差。代码中通常对 $\hat\omega_e$ 限幅，并对角度按 $2\pi$ 回绕。机械转速换算为：</p>
-<p>$$<br>\hat n_m&#x3D;\frac{60\hat\omega_e}{2\pi p}\quad\mathrm{rpm}.<br>$$</p>
+<div class="math-display">\[
+\hat n_m=\frac{60\hat\omega_e}{2\pi p}\quad\mathrm{rpm}.
+\]</div>
 <p>注意反电动势方向、Clarke&#x2F;Park 变换约定、相序或电流正方向不同，会改变符号及角度偏置；需用已知转向和低压开环旋转校准。电压模型观测器的可观测性随速度下降而变差，反电动势幅值 $E\propto\omega_e$，因此不能在零速及很低速仅靠该方法获得可靠角度。对凸极 IPM、强非线性或要求低速高性能的场合，应采用适配的磁链&#x2F;滑模观测器、扩展反电动势模型或高频注入，而非照搬此简化模型。</p>
 <h2 id="三、启动、闭环与速度控制"><a href="#三、启动、闭环与速度控制" class="headerlink" title="三、启动、闭环与速度控制"></a>三、启动、闭环与速度控制</h2><h3 id="3-1-开环启动和切换"><a href="#3-1-开环启动和切换" class="headerlink" title="3.1 开环启动和切换"></a>3.1 开环启动和切换</h3><p>无感反电动势启动通常分为三段：</p>
 <ol>
@@ -454,19 +512,22 @@
 </ol>
 <p>固定 2000 rpm 的最低运行指标描述的是运行范围，不代表启动检测从 2000 rpm 开始就必然可靠。启动期间要监视堵转、过流、欠压和启动超时，并给压缩机设置允许的重启&#x2F;反转策略。</p>
 <h3 id="3-2-转速环和保护"><a href="#3-2-转速环和保护" class="headerlink" title="3.2 转速环和保护"></a>3.2 转速环和保护</h3><p>外环 PI 根据转速误差给出转矩电流或 PWM&#x2F;电压指令。FOC 中常见做法是速度 PI 输出 $i_q^*$，并限制在允许电流内：</p>
-<p>$$<br>e_n&#x3D;n^<em>-\hat n_m,\qquad<br>i_q^</em>&#x3D;\operatorname{sat}\left(K_{pn}e_n+K_{in}\int e_n dt,,-I_{max},I_{max}\right).<br>$$</p>
+<div class="math-display">\[
+e_n=n^*-\hat n_m,\qquad
+i_q^*=\operatorname{sat}\left(K_{pn}e_n+K_{in}\int e_n dt,\,-I_{max},I_{max}\right).
+\]</div>
 <p>应加入积分抗饱和、给定斜坡和电流内环；电流内环带宽高于速度环。六步方案可以让速度 PI 输出 PWM 占空比&#x2F;电流给定，并用母线电流或相电流限流。具体 PI 参数不能仅从 28 V、300 W 推出，需要测量极对数、$R_s$、$L_s$、转动惯量、反电势常数及负载响应后整定。</p>
 <p>至少应考虑相过流、母线过流&#x2F;欠压&#x2F;过压、功率器件过温、失步&#x2F;堵转、传感信号越界、启动超时和看门狗。采样要与 PWM 同步；ADC 量程、分压电阻耐压与功耗、运放共模范围、比较器输入保护及隔离&#x2F;爬电距离都要按实际母线瞬态校核。</p>
 <h2 id="四、硬件采样拓扑与调试步骤"><a href="#四、硬件采样拓扑与调试步骤" class="headerlink" title="四、硬件采样拓扑与调试步骤"></a>四、硬件采样拓扑与调试步骤</h2><h3 id="4-1-相电压采样"><a href="#4-1-相电压采样" class="headerlink" title="4.1 相电压采样"></a>4.1 相电压采样</h3><p>相电压分压后由 ADC 采样，可以软件构造虚拟中性点并检测悬空相过零；也可用缓冲器和比较器实现硬件过零。直接把三个运放输出并联并不能可靠地产生平均电压，必须通过电阻求和、专用差分&#x2F;求和电路或正确的比较器网络实现，避免运放输出互相争用。ADC 方案灵活但受采样时序和噪声影响；比较器方案延迟较小，但过零极性、迟滞、消隐和换相 blanking 仍需处理。</p>
 <h3 id="4-2-相电流采样"><a href="#4-2-相电流采样" class="headerlink" title="4.2 相电流采样"></a>4.2 相电流采样</h3><p>两电阻或三电阻采样可用于 FOC 电流重构。单电阻母线采样则要求 PWM 矢量中存在足够采样窗口，启动和低占空比时可能不可观测。电流观测器所需的 $i_\alpha,i_\beta$ 必须来自有效且时序正确的电流样本；不能把未说明拓扑的“采集相电流”直接等同为完整三相电流。</p>
-<h3 id="4-3-建议调试顺序"><a href="#4-3-建议调试顺序" class="headerlink" title="4.3 建议调试顺序"></a>4.3 建议调试顺序</h3><ol>
+<h3 id="4-3-调试顺序"><a href="#4-3-调试顺序" class="headerlink" title="4.3 调试顺序"></a>4.3 调试顺序</h3><ol>
 <li>不接电机检查栅极互补、死区、故障关断、ADC 偏置和母线分压；限流低压下确认各桥臂开关关系。</li>
 <li>锁转测相电阻和电感，测量极对数；用低压开环驱动观察相电流、相电压和反电动势波形，确认相序、旋转方向及波形更接近梯形还是正弦。</li>
 <li>六步路线验证六个扇区的悬空相、过零极性和过零到换相间隔；FOC 路线验证 Clarke 变换、相电流符号、反电动势估算幅值&#x2F;相位和 PLL 锁定。</li>
 <li>先空载，再逐步增加压缩机负载和速度指令，记录启动成功率、过零&#x2F;PLL 误差、母线电流、绕组及功率器件温升。最后验证堵转、失步、母线扰动和快速给定变化保护。</li>
 </ol>
-<h2 id="五、总结与待补实测参数"><a href="#五、总结与待补实测参数" class="headerlink" title="五、总结与待补实测参数"></a>五、总结与待补实测参数</h2><p>当前硬件同时保留相电压和相电流采样是合理的，因为电机反电动势形状尚未确认。最终控制路线应以实际波形和性能需求决定：梯形反电动势优先评估悬空相过零六步控制；正弦反电动势且要求低转矩脉动时评估电流观测器与 FOC。两者都需要开环启动，并在速度足够高后再接管无感闭环。</p>
-<p>后续应补充电机型号&#x2F;极对数、反电动势常数及其定义、相电阻与电感、额定和峰值电流、实际最低与最高转速、PWM&#x2F;ADC 频率、采样电路比例、启动负载、PI 参数和实测波形。拿到这些数据后，才能给出定量的换相定时、观测器离散系数、PLL 带宽与保护阈值。</p>
+<h2 id="五、总结与待补实测参数"><a href="#五、总结与待补实测参数" class="headerlink" title="五、总结与待补实测参数"></a>五、总结与待补实测参数</h2><p>因为电机反电动势形状尚未确认，当前硬件同时保留相电压和相电流采样。最终控制路线以实际波形和性能需求决定：梯形反电动势优先评估悬空相过零六步控制；正弦反电动势且要求低转矩脉动时评估电流观测器与 FOC。两者都需要开环启动，并在速度足够高后再接管无感闭环。</p>
+<p>后续补充电机型号&#x2F;极对数、反电动势常数及其定义、相电阻与电感、额定和峰值电流、实际最低与最高转速、PWM&#x2F;ADC 频率、采样电路比例、启动负载、PI 参数和实测波形。</p>
 
                 
               </div>
@@ -558,6 +619,12 @@
                 <div class="post-prevnext my-3">
                   <article class="post-prev col-6">
                     
+                    
+                      <a href="/2026/10/13/%E5%8F%82%E6%95%B0%E7%AE%A1%E7%90%86/%E5%8F%82%E6%95%B0%E7%AE%A1%E7%90%86%E6%A8%A1%E5%9D%97%E6%A6%82%E8%BF%B0/" title="参数管理模块概述">
+                        <i class="iconfont icon-arrowleft"></i>
+                        <span class="hidden-mobile">参数管理模块概述</span>
+                        <span class="visible-mobile">上一篇</span>
+                      </a>
                     
                   </article>
                   <article class="post-next col-6">
@@ -930,6 +997,10 @@
   <script  src="/js/local-search.js" ></script>
 
 
+
+
+  
+<script src="/js/mermaid-init.js"></script>
 
 
 

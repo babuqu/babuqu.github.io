@@ -541,8 +541,12 @@
 <hr>
 <h2 id="十四、数学公式（需装插件-hexo-math，如-KaTeX）"><a href="#十四、数学公式（需装插件-hexo-math，如-KaTeX）" class="headerlink" title="十四、数学公式（需装插件 hexo-math，如 KaTeX）"></a>十四、数学公式（需装插件 hexo-math，如 KaTeX）</h2><p>行内：$E &#x3D; mc^2$</p>
 <p>块级：</p>
-<p>$$<br>\sum_{i&#x3D;1}^{n} x_i &#x3D; x_1 + x_2 + \cdots + x_n<br>$$</p>
-<p>$$<br>\int_{a}^{b} f(x) , dx<br>$$</p>
+<div class="math-display">\[
+\sum_{i=1}^{n} x_i = x_1 + x_2 + \cdots + x_n
+\]</div>
+<div class="math-display">\[
+\int_{a}^{b} f(x) \, dx
+\]</div>
 <hr>
 <h2 id="十五、流程图-时序图（需-hexo-filter-mermaid-diagrams-插件）"><a href="#十五、流程图-时序图（需-hexo-filter-mermaid-diagrams-插件）" class="headerlink" title="十五、流程图 &#x2F; 时序图（需 hexo-filter-mermaid-diagrams 插件）"></a>十五、流程图 &#x2F; 时序图（需 hexo-filter-mermaid-diagrams 插件）</h2><pre><code class=" mermaid">graph TD
   A[写文章] --&gt; B&#123;本地预览&#125;
@@ -1045,6 +1049,10 @@
   <script  src="/js/local-search.js" ></script>
 
 
+
+
+  
+<script src="/js/mermaid-init.js"></script>
 
 
 
